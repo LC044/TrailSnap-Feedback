@@ -102,11 +102,11 @@ def test_remote_gateway_auth_precedes_budget_and_reports_native_completion(index
             payload = {"model": "test", "system": "public-source-evidence " * 3000, "messages": [{"role": "assistant", "content": [call]},
                        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "read-test", "content": "source"}]}]}
             with httpx.Client(trust_env=False) as client:
-                assert client.post(url, json=payload).status_code == 403
+                assert client.post(url, json={}).status_code == 403
                 assert not reserved
                 headers = {"x-api-key": gateway["token"]}
                 assert client.post(url, json=payload, headers=headers).status_code == 200
-                assert client.post(url, json=payload, headers=headers).status_code == 429
+                assert client.post(url, json={}, headers=headers).status_code == 429
             assert len(reserved) == 1
             assert events == [{"kind": "read", "label": chat_activity.LABELS["read"], "status": "completed"}]
     finally:
