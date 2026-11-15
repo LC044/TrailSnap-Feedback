@@ -99,7 +99,7 @@ def test_remote_gateway_auth_precedes_budget_and_reports_native_completion(index
             port = gateway["url"].rsplit(":", 1)[1]
             url = f"http://127.0.0.1:{port}/v1/messages"
             call = {"type": "tool_use", "id": "read-test", "name": "read", "input": {"file_path": "source/test.py"}}
-            payload = {"model": "test", "messages": [{"role": "assistant", "content": [call]},
+            payload = {"model": "test", "system": "public-source-evidence " * 3000, "messages": [{"role": "assistant", "content": [call]},
                        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "read-test", "content": "source"}]}]}
             with httpx.Client(trust_env=False) as client:
                 assert client.post(url, json=payload).status_code == 403

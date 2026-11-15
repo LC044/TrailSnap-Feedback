@@ -61,7 +61,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                 if self.path not in {"/messages", "/v1/messages"}:
                     self.send_error(403); return
                 size = int(self.headers.get("Content-Length", "0"))
-                if not 0 < size <= 48000:
+                if not 0 < size <= 128000:
                     self.send_error(413); return
                 payload = json.loads(self.rfile.read(size))
                 names = {}
@@ -100,7 +100,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                 payload["max_tokens"] = settings.ai_max_output_tokens
                 payload["model"] = target.model_name
                 body = json.dumps(payload, ensure_ascii=False).encode()
-                if len(body) > 48000:
+                if len(body) > 128000:
                     self.send_error(413); return
                 if call_budget is not None:
                     if call_budget["remaining"] <= 0:
