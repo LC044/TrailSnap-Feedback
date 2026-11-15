@@ -95,7 +95,7 @@ def send_message(requirement_id: str, payload: MessageInput, request: Request, u
         raise HTTPException(429, "此对话已达到 100 条消息上限")
     admit_chat(db, principal, request.client.host if request.client else "unknown", principal.startswith("receipt:"))
     message = ConversationMessage(conversation_id=conversation.id, **payload.model_dump())
-    allowed = permitted_topic(payload.content)
+    allowed = permitted_topic(payload.content, requirement.title + " " + requirement.description)
     if not allowed:
         message.status, message.response = "completed", REFUSAL
     db.add(message)

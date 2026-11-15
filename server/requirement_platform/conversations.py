@@ -6,7 +6,7 @@ from .collaboration_models import Conversation, ConversationMessage
 from .domain.common import audit
 from .models import Requirement, User
 from . import dsh
-from .ai_guard import permitted_topic, REFUSAL
+from .ai_guard import permitted_topic, REFUSAL, chat_budget
 
 
 def process_message(db, message_id):
@@ -24,7 +24,7 @@ def process_message(db, message_id):
         raise RuntimeError("对话权限已失效")
     if message.mode != "analysis" and not manager:
         raise RuntimeError("管理员权限已失效")
-    if not permitted_topic(message.content):
+    if not permitted_topic(message.content, requirement.title + " " + requirement.description):
         message.response, message.status = REFUSAL, "completed"
         db.commit()
         return
@@ -38,7 +38,8 @@ def process_message(db, message_id):
     db.commit()
     for target in targets[:1]:
         try:
-            response = dsh.run_harness(target, json.dumps(context, ensure_ascii=False), session_id=message.id)
+            with chat_budget(conversation.principal, not conversation.principal.startswith("user:")):
+                response = dsh.run_harness(target, json.dumps(context, ensure_ascii=False), session_id=message.id)
             break
         except Exception:
             continue

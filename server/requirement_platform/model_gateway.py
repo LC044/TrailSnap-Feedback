@@ -7,9 +7,10 @@ from contextlib import contextmanager
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from fastapi import HTTPException
 
 from sqlalchemy.dialects.sqlite import insert
-from .ai_guard import reserve_model
+from .ai_guard import reserve_model, model_principal
 from .collaboration_models import AIQuota
 from .db import SessionLocal
 from .config import settings
@@ -23,6 +24,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 @contextmanager
 def bounded_endpoint(target):
+    principal = model_principal.get()  # Capture before crossing into HTTP server threads.
     # One global in-flight request across workers/replicas sharing the SQLite volume.
     fence = secrets.randbelow(2**30) + 1
     with SessionLocal() as db:
@@ -35,12 +37,13 @@ def bounded_endpoint(target):
             raise RuntimeError("AI 正忙，请稍后重试")
     lock = threading.Lock()
     called = False
+    quota_error = None
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass  # Never log authorization or untrusted bodies.
 
         def do_POST(self):
-            nonlocal called
+            nonlocal called, quota_error
             with lock:
                 if called:
                     self.send_error(429); return
@@ -59,7 +62,7 @@ def bounded_endpoint(target):
                 if len(body) > 48000:
                     self.send_error(413); return
                 with SessionLocal() as db:
-                    reserve_model(db, len(body)); db.commit()
+                    reserve_model(db, len(body), principal); db.commit()
                 base = target.api_base.rstrip("/")
                 url = base + ("/messages" if base.endswith("/v1") else "/v1/messages")
                 headers = {"Content-Type": "application/json", "x-api-key": target.api_key,
@@ -76,6 +79,9 @@ def bounded_endpoint(target):
                         if not chunk:
                             break
                         self.wfile.write(chunk); self.wfile.flush(); remaining -= len(chunk)
+            except HTTPException as exc:
+                quota_error = exc
+                self.send_error(429, "AI budget unavailable")
             except Exception:
                 # No upstream diagnostics/keys to the SDK or browser.
                 self.send_error(503, "AI temporarily unavailable")
@@ -85,7 +91,14 @@ def bounded_endpoint(target):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        try:
+            yield f"http://127.0.0.1:{server.server_port}"
+        except Exception:
+            if quota_error:
+                raise quota_error from None
+            raise
+        if quota_error:
+            raise quota_error
     finally:
         server.shutdown(); server.server_close(); thread.join(timeout=1)
         with SessionLocal() as db:

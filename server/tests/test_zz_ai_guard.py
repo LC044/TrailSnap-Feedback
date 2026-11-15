@@ -23,7 +23,8 @@ def test_refusal_is_local_and_daily_quota_is_visible(monkeypatch):
     from datetime import timedelta
     from requirement_platform import ai_guard
     from requirement_platform.models import BackgroundJob, utcnow
-    monkeypatch.setattr(ai_guard, 'settings', replace(ai_guard.settings, ai_anonymous_daily=1))
+    from requirement_platform import quota_policy
+    monkeypatch.setattr(quota_policy, 'settings', replace(quota_policy.settings, ai_anonymous_daily=1))
     with TestClient(app) as client:
         created = client.post('/api/requirements', json={'type': 'feature', 'title': '行影集讨论范围测试',
             'description': '希望完善行影集的功能并补充使用场景。'}).json()['data']

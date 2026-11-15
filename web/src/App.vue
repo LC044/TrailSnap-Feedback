@@ -49,160 +49,31 @@
         @reload="loadDashboard" @navigate="switchTab" @open-detail="openDetail" />
 
       <!-- ============ 提交需求 ============ -->
-      <section v-else-if="tab === 'submit'">
-        <div class="page-head">
-          <div class="page-head-left">
-            <div class="page-head-icon"><el-icon :size="26"><EditPen /></el-icon></div>
-            <div>
-              <h1>提交需求</h1>
-              <p class="sub">分享你的想法，让行影集变得更好</p>
-              <p class="desc">报告问题、提出改进建议或分享新想法，我们会认真对待每一条反馈。</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="panel" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
-          <div><strong>不确定怎么写？先和 AI 聊聊</strong><p class="sub">描述遇到的问题，AI 帮你整理需求单，确认后即可提交。</p></div>
-          <el-button type="primary" @click="router.push({ name: 'requirement-intake' })">与 AI 讨论需求</el-button>
-        </div>
-        <SubmissionResult v-if="submittedRequirement" :requirement="submittedRequirement" :has-receipt="!!receipts.tokenFor(submittedRequirement.id)"
-          @open="openAnalyzedRequirement" @save="saveManagementLink(submittedRequirement)" @continue-a-i="continueWithAI(submittedRequirement)" />
+      <section v-else-if="tab === 'submit'" class="submission-page">
+        <div class="page-head"><div><h1>提交需求</h1><p class="sub">问题、建议，都可以告诉我们。</p></div><el-button @click="router.push({ name: 'requirement-intake' })">✦ 与 AI 聊聊</el-button></div>
+        <SubmissionResult v-if="submittedRequirement" :requirement="submittedRequirement" :has-receipt="!!receipts.tokenFor(submittedRequirement.id)" @open="openAnalyzedRequirement" @save="saveManagementLink(submittedRequirement)" @continue-a-i="continueWithAI(submittedRequirement)" />
         <div class="submit-layout">
           <el-form class="panel submit-form" label-position="top" @submit.prevent="submitRequirement" @paste="handlePaste">
-            <el-alert v-if="!user" type="info" :closable="false" show-icon title="你正在匿名提交">
-              无需登录即可提交。昵称和联系方式均为可选，联系方式仅管理员可见；匿名需求将公开展示。
-            </el-alert>
             <RequirementContact v-model:email="requirementForm.notification_email" v-model:opt-in="requirementForm.notification_opt_in" />
-            <div class="section">
-              <h2 class="section-head"><el-icon><DocumentAdd /></el-icon>基本信息</h2>
-              <el-form-item label="类型" required>
-                <el-select v-model="requirementForm.type">
-                  <el-option label="新功能" value="feature" /><el-option label="体验优化" value="improvement" /><el-option label="问题修复" value="bug" />
-                </el-select>
-                <div class="field-hint">选择最符合的类型，便于快速分类处理</div>
-              </el-form-item>
-              <el-form-item label="影响程度" required>
-                <el-select v-model="requirementForm.severity">
-                  <el-option label="低" value="low" /><el-option label="中" value="medium" /><el-option label="高" value="high" /><el-option label="严重" value="critical" />
-                </el-select>
-                <div class="field-hint">评估该需求对用户和业务的影响范围</div>
-              </el-form-item>
-              <el-form-item label="标题" required>
-                <el-input v-model="requirementForm.title" maxlength="160" show-word-limit placeholder="请输入简洁清晰的标题" />
-                <div class="field-hint">必填，4–160 字。用简短的语句概括需求的核心内容。</div>
-              </el-form-item>
-              <div v-if="!user" class="form-grid">
-                <el-form-item label="提交人昵称（可选）">
-                  <el-input v-model="requirementForm.submitter_name" maxlength="50" show-word-limit placeholder="如何称呼你" />
-                </el-form-item>
-              </div>
-            </div>
-
-            <div class="section">
-              <h2 class="section-head"><el-icon><Tickets /></el-icon>需求描述</h2>
-              <el-form-item label="需求或问题描述" required>
-                <el-input v-model="requirementForm.description" type="textarea" :rows="5" maxlength="8000" show-word-limit placeholder="请详细描述你的需求、遇到的问题或改进建议..." />
-                <div class="field-hint">必填，10–8,000 字。提供越详细的信息，越有助于我们理解和处理。</div>
-              </el-form-item>
-            </div>
-
-            <div v-if="requirementForm.type === 'bug'" class="section">
-              <h2 class="section-head"><el-icon><Warning /></el-icon>问题细节</h2>
-              <el-form-item label="复现步骤">
-                <el-input v-model="requirementForm.steps_to_reproduce" type="textarea" :rows="4" maxlength="4000" show-word-limit placeholder="例如：1. 打开照片页 2. 点击筛选..." />
-                <div class="field-hint">最多 4,000 字。请按发生顺序描述操作，便于复现问题。</div>
-              </el-form-item>
-            </div>
-
-            <div class="section">
-              <h2 class="section-head"><el-icon><Switch /></el-icon>行为描述</h2>
-              <div class="form-grid">
-                <el-form-item label="当前行为">
-                  <el-input v-model="requirementForm.current_behavior" type="textarea" :rows="3" maxlength="3000" show-word-limit placeholder="请描述目前的实际情况，例如：现在系统是如何工作的？" />
-                  <div class="field-hint">最多 3,000 字。</div>
-                </el-form-item>
-                <el-form-item label="期望行为">
-                  <el-input v-model="requirementForm.expected_behavior" type="textarea" :rows="3" maxlength="3000" show-word-limit placeholder="请描述你期望的结果，例如：希望系统如何改进？" />
-                  <div class="field-hint">最多 3,000 字。</div>
-                </el-form-item>
-              </div>
-            </div>
-
-            <div class="section">
-              <h2 class="section-head"><el-icon><Document /></el-icon>日志与附件</h2>
-              <el-form-item label="日志文字">
-                <el-input v-model="requirementForm.log_text" type="textarea" :rows="5" maxlength="20000" show-word-limit placeholder="可粘贴脱敏后的错误日志，请勿提交密码、令牌等敏感信息" />
-                <div class="field-hint">最多 20,000 字，仅本人和管理员可见。提交前请移除密码、令牌等敏感信息。</div>
-              </el-form-item>
-              <el-form-item label="截图或附件">
-                <input ref="fileInput" class="native-file" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.txt,.log,.json,.pdf" @change="selectFiles" />
-                <div class="field-hint">最多 5 个，单个不超过 5MB；支持 PNG、JPG、WebP、TXT、LOG、JSON、PDF。也可直接 Ctrl/Cmd+V 粘贴截图，仅本人和管理员可见。</div>
-                <div v-if="pendingFiles.length" class="file-list">
-                  <div v-for="(file, index) in pendingFiles" :key="`${file.name}-${file.size}-${index}`" class="file-row">
-                    <span>{{ file.name }}（{{ formatBytes(file.size) }}）</span>
-                    <el-button link type="danger" @click="pendingFiles.splice(index, 1)">移除</el-button>
-                  </div>
-                </div>
-              </el-form-item>
-            </div>
-
-            <div class="section">
-              <h2 class="section-head"><el-icon><InfoFilled /></el-icon>其他信息</h2>
-              <div class="form-grid">
-                <el-form-item label="TrailSnap 版本">
-                  <el-input v-model="requirementForm.product_version" maxlength="50" show-word-limit placeholder="例如 0.14.1" />
-                  <div class="field-hint">最多 50 个字符。如果与特定版本相关，请填写版本号。</div>
-                </el-form-item>
-                <el-form-item v-if="user" label="公开范围">
-                  <el-radio-group v-model="requirementForm.visibility">
-                    <el-radio value="public">公开</el-radio>
-                    <el-radio value="private">仅本人和管理员</el-radio>
-                  </el-radio-group>
-                  <div class="field-hint">公开需求可被所有用户查看；私有需求仅本人和管理员可见。</div>
-                </el-form-item>
-                <el-form-item v-else label="公开范围">
-                  <el-input model-value="公开" disabled />
-                  <div class="field-hint">匿名提交的需求固定公开展示。</div>
-                </el-form-item>
-              </div>
-            </div>
-
-            <div class="submit-quota">所有非管理员用户合计每小时最多提交 20 条需求。</div>
-            <div class="actions">
-              <el-button type="primary" size="large" :icon="Promotion" :loading="busy" native-type="submit">提交需求</el-button>
-              <el-button size="large" @click="saveDraft">保存草稿</el-button>
-            </div>
+            <el-form-item label="类型"><el-radio-group v-model="requirementForm.type"><el-radio-button value="bug">问题修复</el-radio-button><el-radio-button value="improvement">体验优化</el-radio-button><el-radio-button value="feature">新功能</el-radio-button></el-radio-group></el-form-item>
+            <el-form-item label="标题" required><el-input v-model="requirementForm.title" maxlength="160" show-word-limit placeholder="一句话说说你的想法（至少 4 字）" /></el-form-item>
+            <el-form-item label="描述" required><el-input v-model="requirementForm.description" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" maxlength="8000" show-word-limit placeholder="遇到了什么？希望有什么改变？（至少 10 字）" /></el-form-item>
+            <details class="optional-fields"><summary>补充细节 <span>选填</span></summary><div class="optional-body">
+              <el-form-item label="期望结果"><el-input v-model="requirementForm.expected_behavior" type="textarea" :rows="2" maxlength="3000" placeholder="希望如何改进" /></el-form-item>
+              <el-form-item v-if="requirementForm.type === 'bug'" label="复现步骤"><el-input v-model="requirementForm.steps_to_reproduce" type="textarea" :rows="3" maxlength="4000" placeholder="1. 打开… 2. 点击… 3. 出现…" /></el-form-item>
+              <el-form-item label="当前情况"><el-input v-model="requirementForm.current_behavior" type="textarea" :rows="2" maxlength="3000" /></el-form-item>
+              <div class="form-grid"><el-form-item label="影响程度"><el-select v-model="requirementForm.severity"><el-option label="低" value="low" /><el-option label="中" value="medium" /><el-option label="高" value="high" /><el-option label="严重" value="critical" /></el-select></el-form-item><el-form-item label="行影集版本"><el-input v-model="requirementForm.product_version" maxlength="50" placeholder="例如 0.14.1" /></el-form-item></div>
+              <el-form-item v-if="!user" label="昵称"><el-input v-model="requirementForm.submitter_name" maxlength="50" placeholder="如何称呼你" /></el-form-item>
+            </div></details>
+            <details class="optional-fields" :open="pendingFiles.length > 0"><summary>截图与日志 <span>仅本人和管理员可见</span><span v-if="pendingFiles.length">{{ pendingFiles.length }} 个附件</span></summary><div class="optional-body">
+              <el-form-item label="截图或附件"><input ref="fileInput" class="native-file" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.txt,.log,.json,.pdf" @change="selectFiles" /><div class="field-hint">最多 5 个，每个 5MB；支持粘贴截图。</div><div v-if="pendingFiles.length" class="file-list"><div v-for="(file, index) in pendingFiles" :key="`${file.name}-${index}`" class="file-row"><span>{{ file.name }}（{{ formatBytes(file.size) }}）</span><el-button link type="danger" @click="pendingFiles.splice(index, 1)">移除</el-button></div></div></el-form-item>
+              <el-form-item label="错误日志"><el-input v-model="requirementForm.log_text" type="textarea" :rows="3" maxlength="20000" show-word-limit placeholder="粘贴前请移除密码与密钥" /></el-form-item>
+            </div></details>
+            <el-form-item v-if="user" label="公开范围"><el-radio-group v-model="requirementForm.visibility"><el-radio value="public">公开</el-radio><el-radio value="private">仅本人和管理员</el-radio></el-radio-group></el-form-item>
+            <p v-else class="submission-privacy">需求公开展示，邮箱和附件不会公开。</p>
+            <div class="actions"><el-button type="primary" size="large" :icon="Promotion" :loading="busy" native-type="submit">提交需求</el-button><el-button size="large" @click="saveDraft">保存草稿</el-button></div>
           </el-form>
-
-          <aside>
-            <div class="side-card">
-              <h3><el-icon><Opportunity /></el-icon>提交小助手</h3>
-              <ul class="tip-list">
-                <li><el-icon><CircleCheckFilled /></el-icon>用简洁的标题概括核心问题</li>
-                <li><el-icon><CircleCheckFilled /></el-icon>详细描述使用场景和背景信息</li>
-                <li><el-icon><CircleCheckFilled /></el-icon>如果有截图或示例，请一并提供</li>
-                <li><el-icon><CircleCheckFilled /></el-icon>选择合适的需求类型和影响程度</li>
-                <li><el-icon><CircleCheckFilled /></el-icon>提交后可以在「我的需求」中查看进度</li>
-              </ul>
-            </div>
-            <div class="side-card">
-              <h3><el-icon><Guide /></el-icon>需求处理流程</h3>
-              <ol class="step-list">
-                <li class="active"><div><div class="step-title">提交需求</div><p class="step-desc">填写并提交需求信息</p></div></li>
-                <li><div><div class="step-title">需求评审</div><p class="step-desc">产品和技术团队进行评估</p></div></li>
-                <li><div><div class="step-title">规划排期</div><p class="step-desc">纳入版本计划</p></div></li>
-                <li><div><div class="step-title">开发实现</div><p class="step-desc">进入开发并跟踪进度</p></div></li>
-                <li><div><div class="step-title">完成上线</div><p class="step-desc">需求实现并发布</p></div></li>
-              </ol>
-            </div>
-            <div class="side-card help-card">
-              <h3><el-icon><Service /></el-icon>需要帮助？</h3>
-              <p>如果你在使用过程中遇到问题，可以联系产品团队或查看帮助文档。</p>
-              <a href="https://trailsnap.cn" target="_blank" rel="noopener">
-                <el-button plain class="w-full">查看帮助文档</el-button>
-              </a>
-            </div>
-          </aside>
+          <aside class="submission-aside"><div class="side-card"><h3>一起让行影集更好</h3><ol class="submission-flow"><li><span>1</span><div>提交想法<small>表单填写，或与 AI 讨论</small></div></li><li><span>2</span><div>一起完善<small>确认细节，评估方案</small></div></li><li><span>3</span><div>关注进展<small>实现与发版通知</small></div></li></ol><el-button plain @click="router.push({ name: 'requirement-intake' })">✦ 让 AI 帮我整理</el-button></div></aside>
         </div>
       </section>
 
@@ -405,10 +276,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import {
-  Checked, CircleCheckFilled, Collection, Connection, DataAnalysis, Document, DocumentAdd, EditPen, Flag, Guide,
-  InfoFilled, MagicStick, Opportunity, Promotion, Service, Setting, Switch, Tickets, TrendCharts, Warning,
+  Checked, Collection, Connection, DataAnalysis, Document, EditPen, Flag,
+  MagicStick, Promotion, Setting, TrendCharts,
 } from '@element-plus/icons-vue'
-import { ElButton, ElIcon, ElMessage, ElMessageBox } from 'element-plus'
+import { ElButton, ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
 import axios from 'axios'
 import logoUrl from './assets/logo.svg'

@@ -14,8 +14,27 @@ from ..schemas import (
 )
 from ..security import manager
 from .responses import ok
+from ..quota_policy import QuotaPolicy, read_policy
+from ..collaboration_models import AIQuotaPolicy
 
 router = APIRouter(prefix="/api/admin", tags=["ai-settings"])
+
+
+@router.get("/ai-quota-policy")
+def get_quota_policy(_actor: User = Depends(manager), db: Session = Depends(get_db)):
+    return ok(read_policy(db).model_dump())
+
+
+@router.put("/ai-quota-policy")
+def put_quota_policy(payload: QuotaPolicy, actor: User = Depends(manager), db: Session = Depends(get_db)):
+    row = db.get(AIQuotaPolicy, 1)
+    if row is None:
+        row = AIQuotaPolicy(id=1)
+        db.add(row)
+    row.config = payload.model_dump()
+    audit(db, actor.id, "ai_quota_policy.updated", "ai_quota_policy", "1", config=row.config)
+    db.commit()
+    return ok(row.config)
 
 
 @router.get("/ai-settings")

@@ -1,7 +1,7 @@
 <template>
   <section class="conversation-page">
     <header class="conversation-head">
-      <div><p class="eyebrow">行影集 · 一起把想法变成现实</p><h1>REQ-{{ number }} · 需求讨论</h1></div>
+      <div><h1>REQ-{{ number }} · 需求讨论</h1></div>
       <el-button @click="router.push(`/requirements/REQ-${number}`)">查看需求</el-button>
     </header>
     <el-alert v-if="error" type="error" :closable="false" :title="error"><el-button link @click="reload">重新加载</el-button></el-alert>
@@ -9,7 +9,7 @@
     <div v-else ref="timeline" class="conversation-timeline" role="log" aria-live="polite" aria-label="需求对话">
       <div v-if="!messages.length && ready" class="conversation-welcome">
         <div class="assistant-avatar">行</div><h2>聊聊你的想法</h2>
-        <p>需求已经保存。可以补充使用场景、复现步骤，或和 AI 一起梳理细节。</p>
+        <p>补充细节，或继续完善需求。</p>
         <div class="suggestions"><el-button v-for="suggestion in suggestions" :key="suggestion" @click="draft = suggestion">{{ suggestion }}</el-button></div>
       </div>
       <article v-for="message in messages" :key="message.id" class="conversation-turn">
@@ -17,7 +17,7 @@
         <div class="assistant-message"><div class="assistant-avatar">{{ message.mode === 'consultation' ? '问' : '行' }}</div><div class="assistant-content">
           <div v-if="message.response" class="message-text" v-html="renderConversationMarkdown(message.response)"></div>
           <p v-else-if="message.status === 'failed'" role="alert">{{ message.error }} <el-button link type="primary" @click="retry(message.id)">重试</el-button></p>
-          <p v-else class="pending" role="status">{{ message.status === 'running' ? '正在分析…' : '已收到，等待分析…' }}</p>
+          <ThinkingDots v-else :label="message.status === 'running' ? '正在分析' : '等待分析'" />
         </div></div>
       </article>
     </div>
@@ -25,9 +25,9 @@
       <div class="composer-options"><span>行影集 AI 助手</span>
         <el-select v-if="canPlan" v-model="mode" aria-label="对话任务" style="width:160px"><el-option label="需求分析" value="analysis" /><el-option label="实现方案" value="plan" /><el-option label="修复建议 / 补丁" value="repair" /></el-select>
       </div>
-      <p v-if="quota" class="quota" role="status">今日已用 {{ quota.daily_used }}/{{ quota.daily_limit }} 次，剩余 {{ quota.daily_remaining }} 次 · 本对话 {{ quota.conversation_used }}/{{ quota.conversation_limit }} 条 · 每 {{ quota.interval_seconds }} 秒最多发送一次（重试也计次）</p>
-      <el-input v-model="draft" type="textarea" :rows="3" :maxlength="2000" show-word-limit resize="none" placeholder="仅讨论行影集的使用、需求与问题反馈…" aria-label="对话内容" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
-      <div class="composer-actions"><small>AI 的建议由维护者审核。Ctrl / ⌘ + Enter 发送</small><el-button native-type="submit" type="primary" :loading="sending" :disabled="pending || !draft.trim() || quota?.daily_remaining === 0">发送</el-button></div>
+      <ChatQuota :quota="quota" />
+      <el-input v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :maxlength="2000" show-word-limit resize="none" placeholder="补充细节，或回答 AI 的提问…" aria-label="对话内容" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
+      <div class="composer-actions"><small>{{ cooldown ? `${cooldown} 秒后可发送` : '仅讨论行影集' }}</small><el-button native-type="submit" type="primary" :loading="sending" :disabled="pending || !draft.trim() || quota?.exhausted || cooldown > 0">发送</el-button></div>
     </form>
     <details v-if="ready" class="conversation-subscribe"><summary>通过邮箱跟进此需求</summary><form @submit.prevent="subscribe"><el-input v-model="email" type="email" placeholder="你的邮箱" aria-label="通知邮箱" required /><el-button native-type="submit" :loading="subscribing">订阅通知</el-button></form><p>请到邮箱确认订阅，可随时退订。邮件不公开显示你的邮箱。</p></details>
     <details v-if="canPlan" class="conversation-subscribe"><summary>向提交者发起咨询</summary><el-input v-model="question" type="textarea" :rows="3" maxlength="4000" placeholder="请用户补充的信息（将保存在其对话中，并通过邮件提醒）" /><el-button :disabled="question.trim().length < 4" :loading="consulting" @click="consult">发送咨询</el-button></details>
@@ -41,6 +41,8 @@ import { ElMessage } from 'element-plus'
 import { collaboration, type Message, type Quota } from '../../api/collaboration'
 import { useAnonymousReceipts, newEditToken } from '../../stores/anonymousReceipts'
 import { renderConversationMarkdown } from '../../conversationMarkdown'
+import ChatQuota from '../../components/ChatQuota.vue'
+import ThinkingDots from '../../components/ThinkingDots.vue'
 
 const props = defineProps<{ number: number }>()
 const router = useRouter()
@@ -56,6 +58,8 @@ try {
 const token = computed(() => receipts.receipts.find(r => r.number === props.number)?.token || emailToken || undefined)
 const messages = ref<Message[]>([])
 const quota = ref<Quota>()
+const cooldown = ref(0)
+const cooldownTimer = setInterval(() => { if (cooldown.value > 0) cooldown.value-- }, 1000)
 const draft = ref(''), mode = ref('analysis'), email = ref(''), question = ref('')
 const error = ref(''), canPlan = ref(false), ready = ref(false), loading = ref(true), sending = ref(false), subscribing = ref(false), consulting = ref(false)
 const timeline = ref<HTMLElement | null>(null)
@@ -70,7 +74,7 @@ async function reload() {
   try {
     const data = await collaboration.read(id, token.value)
     if (stopped) return
-    messages.value = data.messages; canPlan.value = data.can_plan; quota.value = data.quota; error.value = ''; ready.value = true
+    messages.value = data.messages; canPlan.value = data.can_plan; quota.value = data.quota; cooldown.value = data.quota.retry_after_seconds || 0; error.value = ''; ready.value = true
     await nextTick()
     if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight
   } catch (e) { if (!stopped) error.value = reason(e) }
@@ -80,7 +84,7 @@ async function reload() {
   }
 }
 async function send() {
-  if (sending.value || pending.value || !draft.value.trim()) return
+  if (sending.value || pending.value || cooldown.value || quota.value?.exhausted || !draft.value.trim()) return
   sending.value = true
   if (!pendingSend || pendingSend.content !== draft.value.trim() || pendingSend.mode !== mode.value) pendingSend = { content: draft.value.trim(), mode: mode.value, id: newEditToken() }
   try { await collaboration.send(id, pendingSend.content, pendingSend.id, pendingSend.mode, token.value); draft.value = ''; pendingSend = undefined; await reload() }
@@ -91,7 +95,7 @@ async function retry(message: string) { try { await collaboration.retry(id, mess
 async function subscribe() { subscribing.value = true; try { await collaboration.subscribe(id, email.value, token.value); ElMessage.success('请到邮箱确认订阅') } catch(e) { ElMessage.error(reason(e)) } finally { subscribing.value = false } }
 async function consult() { consulting.value = true; try { await collaboration.consult(id, question.value); question.value = ''; ElMessage.success('咨询已保存，并加入通知队列') } catch(e) { ElMessage.error(reason(e)) } finally { consulting.value = false } }
 onMounted(reload)
-onBeforeUnmount(() => { stopped = true; clearTimeout(timer) })
+onBeforeUnmount(() => { stopped = true; clearTimeout(timer); clearInterval(cooldownTimer) })
 </script>
 
 <style scoped>
@@ -119,4 +123,6 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer) })
 .message-text :deep(table) { display:block; border-collapse:collapse; }
 .message-text :deep(th),.message-text :deep(td) { border:1px solid var(--rp-border); padding:6px 10px; }
 @media(max-width:600px) { .conversation-head h1{font-size:18px}.conversation-head { align-items:flex-start; }.conversation-timeline{max-height:52dvh}.composer-actions small{max-width:62%;line-height:1.5}.user-message{max-width:94%}.conversation-subscribe form{flex-wrap:wrap} }
+.conversation-composer :deep(.el-textarea__inner){box-shadow:none;padding:8px 0;font-size:15px}.conversation-timeline{scrollbar-width:thin}.conversation-head{padding:8px 0 16px}.composer-options{margin-bottom:0}
+@media(max-width:600px){.conversation-timeline{min-height:220px;max-height:45dvh}.conversation-composer{bottom:8px;padding:12px;border-radius:16px}}
 </style>

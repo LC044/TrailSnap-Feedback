@@ -1,5 +1,5 @@
 """Durable conversations and transactional email outbox."""
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -11,6 +11,12 @@ class AIQuota(Base):
     key: Mapped[str] = mapped_column(String(200), primary_key=True)
     used: Mapped[int] = mapped_column(Integer, default=0)
     expires_at: Mapped[object] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class AIQuotaPolicy(Base):
+    __tablename__ = "ai_quota_policy"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class EmailSubscription(Base):

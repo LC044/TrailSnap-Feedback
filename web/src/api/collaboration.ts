@@ -1,7 +1,7 @@
 import { call } from './client'
 
 export type Message = { id: string; content: string; response?: string; mode: string; status: string; error?: string; created_at: string }
-export type Quota = { daily_used: number; daily_limit: number; daily_remaining: number; conversation_used: number; conversation_limit: number; interval_seconds: number; reset_after_seconds: number }
+export type Quota = { daily_used: number; daily_limit: number; daily_remaining: number; conversation_used: number; conversation_limit: number; interval_seconds: number; reset_after_seconds: number; limit_mode?: 'count'|'tokens'|'both'; tokens_used?: number; tokens_limit?: number; tokens_remaining?: number; exhausted?: boolean; global_exhausted?: boolean; retry_after_seconds?: number }
 export type Conversation = { messages: Message[]; can_plan: boolean; quota: Quota }
 export type Delivery = { id: string; kind: string; status: string; attempts: number; last_error?: string; created_at: string }
 const headers = (token?: string) => token ? { 'X-Requirement-Edit-Token': token } : undefined

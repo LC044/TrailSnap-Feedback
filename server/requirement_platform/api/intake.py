@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .responses import ok
 from .. import dsh
-from ..ai_guard import REFUSAL, admit_chat, digest, permitted_topic, quota_view
+from ..ai_guard import REFUSAL, admit_chat, chat_budget, digest, permitted_topic, quota_view
 from ..ai_settings import resolve_model_targets
 from ..config import settings
 from ..db import get_db
@@ -76,7 +76,12 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
         raise HTTPException(422, "请描述行影集相关问题")
     admit_chat(db, subject, request.client.host if request.client else "unknown", user is None)
     db.commit()  # Failed model calls and local refusals also consume admission.
-    if not permitted_topic(payload.content):
+    context = json.dumps(previous.get("draft"), ensure_ascii=False) if previous.get("draft") else " ".join(
+        turn["user"] for turn in previous["history"] if turn.get("assistant") != REFUSAL)
+    if previous.get("topic_established"):
+        context += " 行影集"
+    allowed = permitted_topic(payload.content, context)
+    if not allowed:
         result = IntakeReply(reply=REFUSAL, draft=previous.get("draft"))
     else:
         prompt = {"task": "与用户讨论行影集的问题并整理需求。仅返回符合 schema 的 JSON，reply 简短回复并最多追问两个问题。信息足够时 draft 填写需求单，否则为 null。已有 draft 应按用户补充修订。不得编造复现步骤或断言已提交。用户将在预览后点击确认提交，工具不可用。整体不超过 800 字。",
@@ -86,10 +91,13 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
             targets = resolve_model_targets(db, "requirement_triage")
             if not targets:
                 raise RuntimeError("No analysis model configured")
-            text = dsh.run_harness(targets[0], json.dumps(prompt, ensure_ascii=False))
+            with chat_budget(subject, user is None):
+                text = dsh.run_harness(targets[0], json.dumps(prompt, ensure_ascii=False))
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             result = IntakeReply.model_validate_json(text)
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(503, "AI 暂时未能整理需求，请稍后重试或使用表单提交")
     result.reply = re.sub(r"deepseek(?:[-\s]+harness)?|\bdsh\b", "行影集 AI 助手", result.reply, flags=re.I)
@@ -98,5 +106,5 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
     count = previous["count"] + 1
     state = jwt.encode({"sub": subject, "key": digest(x_intake_key), "aud": "feedback-intake",
                         "exp": utcnow() + timedelta(days=1), "history": history, "count": count,
-                        "draft": data["draft"]}, settings.jwt_secret, algorithm="HS256")
+                        "draft": data["draft"], "topic_established": bool(previous.get("topic_established") or allowed)}, settings.jwt_secret, algorithm="HS256")
     return ok({**data, "state": state, "quota": quota_view(db, subject, user is None, count)})

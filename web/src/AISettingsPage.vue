@@ -11,8 +11,9 @@
       未保存任务路由时，后台需求分诊仍使用 RP_AI_API_URL / RP_AI_MODEL。保存路由后以页面配置为准。
     </el-alert>
 
-    <el-alert type="info" :closable="false" title="由 DeepSeek Harness 执行分析与对话">
-      请配置兼容 DeepSeek Messages 协议的接口。原有仅支持 Chat Completions 的连接需要调整，测试连接会实际启动 DSH。
+    <AIQuotaSettings />
+    <el-alert type="info" :closable="false" title="模型接口配置">
+      请配置兼容 Messages 协议的接口，测试连接会实际调用模型。
     </el-alert>
     <article class="panel settings-block">
       <h2>添加模型连接</h2>
@@ -96,6 +97,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import AIQuotaSettings from './components/AIQuotaSettings.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type AIConnection, type AIModel, type AISettings, type AITaskRoute } from './api'
 

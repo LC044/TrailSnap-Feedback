@@ -11,6 +11,7 @@
 - **官方 DSH**：固定 `deepseek-harness-sdk==0.2.2rc2`；公开分析禁用 shell、文件操作、目录切换、个人插件及日志上报。管理员可选择实现方案或修复建议；当前产生供审查的建议/补丁文本，不自动写仓库、执行修复或合并。
 - **可靠邮件**：事务 outbox、原子租约、退避重试、失败列表与重试、邮箱验证、退订和 30 天的匿名讨论链接。SMTP 至少一次投递，可能重复；`sent` 表示 SMTP 接收。旧联系方式不会自动订阅。
 - **权限与费用防护**：用户界面统一为“行影集 AI 助手”，只讨论行影集。服务端限制角色、次数、频率和全站模型预算，重试也计次；页面显示剩余次数。详见[权限、提示词与费用控制](doc/ai-security.md)。
+- **可配置对话额度**：管理员在「AI 模型设置 → 对话限额」选择按次数、按 Token 或同时限制，分别设置匿名与登录用户的每日额度。全站次数、Token 预算、IP 次数和发送间隔始终生效；修改后保留当天已用记录。Token 使用完整请求 UTF-8 字节数加最大输出作保守预留，失败不退还，不等同于上游实际账单。
 - **独立镜像 CI**：PR 测试和构建；main/master、`requirement-v*` 标签与手动触发构建并推送 GHCR。镜像分别为 `ghcr.io/lc044/trailsnap-feedback/requirement-platform-server` 和 `requirement-platform-web`。
 
 同仓部署升级前阅读 [迁移与回滚说明](doc/migration-from-trailsnap.md)。生产 Compose 通过 `RP_DATA_VOLUME` 显式复用已有外部卷。
