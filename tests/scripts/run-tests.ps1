@@ -3,7 +3,8 @@ param(
     [string]$EnvFile = 'tests/.env.test',
     [ValidateSet('unit')][string]$Layer = 'unit',
     [ValidateSet('all', 'smoke')][string]$Level = 'all',
-    [ValidateSet('requirement-platform', 'server', 'web', 'all')][string]$Component = 'all'
+    [ValidateSet('requirement-platform', 'server', 'web', 'native-runner', 'all')][string]$Component = 'all',
+    [string]$NativeRunnerImage = 'trailsnap-feedback-native:test'
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -22,6 +23,10 @@ function Invoke-Checked([string]$Program, [string[]]$Arguments) {
     if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
 }
 try {
+    if ($Component -eq 'native-runner') {
+        $env:NATIVE_RUNNER_IMAGE = $NativeRunnerImage
+        Invoke-Checked 'python' @((Join-Path $PSScriptRoot 'native-runner-smoke.py'))
+    }
     if ($Component -in @('requirement-platform', 'server', 'all')) {
         Push-Location (Join-Path $repoRoot 'server')
         try {

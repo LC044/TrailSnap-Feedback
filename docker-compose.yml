@@ -10,9 +10,13 @@ services:
       RP_JWT_SECRET: ${RP_JWT_SECRET:?Set RP_JWT_SECRET in .env}
       RP_OWNER_EMAIL: ${RP_OWNER_EMAIL:?Set RP_OWNER_EMAIL in .env}
       RP_BASE_PATH: ${RP_BASE_PATH:-}
+      RP_DSH_RUNNER_URL: http://dsh-runner:8013
+      RP_DSH_RUNNER_TOKEN: ${RP_DSH_RUNNER_TOKEN:?Set RP_DSH_RUNNER_TOKEN in .env}
+      RP_DSH_GATEWAY_HOST: api
     volumes:
       - requirement-data:/app/data
-    networks: [requirement-private]
+      - public-knowledge:/app/public-knowledge:ro
+    networks: [requirement-private, dsh-internal]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8010/api/health')"]
       interval: 30s
@@ -30,9 +34,13 @@ services:
       RP_JWT_SECRET: ${RP_JWT_SECRET:?Set RP_JWT_SECRET in .env}
       RP_OWNER_EMAIL: ${RP_OWNER_EMAIL:?Set RP_OWNER_EMAIL in .env}
       RP_BASE_PATH: ${RP_BASE_PATH:-}
+      RP_DSH_RUNNER_URL: http://dsh-runner:8013
+      RP_DSH_RUNNER_TOKEN: ${RP_DSH_RUNNER_TOKEN:?Set RP_DSH_RUNNER_TOKEN in .env}
+      RP_DSH_GATEWAY_HOST: worker
     volumes:
       - requirement-data:/app/data
-    networks: [requirement-private]
+      - public-knowledge:/app/public-knowledge
+    networks: [requirement-private, dsh-internal]
     depends_on:
       api:
         condition: service_healthy
@@ -68,9 +76,39 @@ services:
       api:
         condition: service_healthy
 
+  dsh-runner:
+    image: trailsnap-requirement-platform-server:local
+    user: "0:0"
+    command: [".venv/bin/python", "-m", "requirement_platform.native_runner"]
+    restart: unless-stopped
+    init: true
+    environment:
+      RP_DSH_RUNNER_TOKEN: ${RP_DSH_RUNNER_TOKEN:?Set RP_DSH_RUNNER_TOKEN in .env}
+    volumes:
+      - public-knowledge:/knowledge:ro
+    read_only: true
+    tmpfs:
+      # The official SDK extracts native modules here, so exec is required.
+      - /tmp:size=268435456,mode=1777,exec
+    networks: [dsh-internal]
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN, DAC_OVERRIDE, FOWNER, KILL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8013/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   requirement-data:
+  public-knowledge:
 
 networks:
   requirement-private:
     driver: bridge
+  dsh-internal:
+    internal: true

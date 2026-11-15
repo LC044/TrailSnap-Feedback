@@ -149,7 +149,7 @@ def test_gateway_propagates_principal_to_http_thread_and_blocks_before_upstream(
                     global_daily=100000, global_tokens=1000000000).model_dump()))
         db.commit()
     # The unreachable target must never receive a request; the personal cap blocks first.
-    target = SimpleNamespace(api_base='http://127.0.0.1:1', api_key='test', timeout_seconds=3)
+    target = SimpleNamespace(model_name='test', api_base='http://127.0.0.1:1', api_key='test', timeout_seconds=3)
     with pytest.raises(HTTPException) as budget:
         with chat_budget(subject, True), bounded_endpoint(target) as endpoint:
             body = json.dumps({'messages': [], 'max_tokens': 1}).encode()

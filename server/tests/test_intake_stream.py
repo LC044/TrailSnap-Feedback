@@ -28,8 +28,8 @@ def frames(response):
 def test_stream_auth_state_admission_and_final_result(monkeypatch):
     def run(*_, **__):
         emit("analyzing")
-        emit("read_trailsnap_source")
-        emit("read_trailsnap_source", "completed")
+        emit("read")
+        emit("read", "completed")
         emit("secret prompt and credentials")
         return json.dumps({"reply": "请补充行影集导出格式", "draft": None})
     monkeypatch.setattr(intake, "resolve_model_targets", lambda *_: [object()])
@@ -64,25 +64,3 @@ def test_stream_refusal_is_local_and_failures_are_sanitized(monkeypatch):
         assert frames(response)[-1][0] == "error"
         assert frames(response)[-1][1]["code"] == 503
         assert "private upstream" not in response.text
-
-
-def test_bridge_reports_only_whitelisted_tool_activity():
-    from urllib.request import Request, urlopen
-    from requirement_platform.knowledge_bridge import knowledge_bridge
-    class Reader:
-        def execute(self, name, args):
-            assert args == {"query": "private user details"}
-            return {"text": "private source excerpt"}
-    events = []
-    token = observer.set(events.append)
-    try:
-        with knowledge_bridge(Reader()) as bridge:
-            request = Request(bridge["endpoint"] + "/search_official_docs", data=json.dumps({"query": "private user details"}).encode(), headers={"Authorization": "Bearer " + bridge["token"], "Content-Type": "application/json"})
-            with urlopen(request) as response:
-                assert response.status == 200
-    finally:
-        observer.reset(token)
-    assert [e["status"] for e in events] == ["running", "completed"]
-    assert all(set(e) == {"kind", "label", "status"} for e in events)
-    assert "private" not in json.dumps(events)
-    assert observer.get() is None

@@ -13,7 +13,7 @@ def main():
         tag, revision = resolve_latest()
         files = fetch_code(revision, timeout=300)
         body = json.dumps({"revision": revision, "index_version": INDEX_VERSION, "files": files}, ensure_ascii=False).encode()
-        if not files or len(body) > 32 * 1024 * 1024:
+        if not files or len(body) > 64 * 1024 * 1024:
             raise ValueError("Invalid bundle")
         Path(__file__).with_name("release-source.json.gz").write_bytes(gzip.compress(body))
         print(f"Prepared public source cache: {tag}, {len(files)} text files")

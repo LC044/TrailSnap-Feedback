@@ -10,7 +10,8 @@ COPY migrations ./migrations
 RUN uv sync --frozen --no-dev
 RUN .venv/bin/python -m requirement_platform.prepare_knowledge
 
-RUN useradd --system --uid 10001 --create-home requirement && mkdir -p /app/data && chown -R requirement:requirement /app
+RUN useradd --system --uid 10001 --create-home requirement && mkdir -p /app/data /app/public-knowledge && chown -R requirement:requirement /app
+ENV RP_KNOWLEDGE_DIR=/app/public-knowledge
 USER requirement
 
 EXPOSE 8010 8012

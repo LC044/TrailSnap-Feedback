@@ -36,7 +36,7 @@ def test_ordered_fallback_shares_budget_and_never_retries_local_quota(monkeypatc
         return '行影集分析完成'
     monkeypatch.setattr(dsh, 'run_harness', run)
     assert dsh.run_with_fallback(['unavailable-model', 'available-api'], '{}') == '行影集分析完成'
-    assert calls == [('unavailable-model',3),('available-api',2)]
+    assert calls == [('unavailable-model',12),('available-api',11)]
     assert model_call_budget.get() is None
     calls.clear()
     def quota(target, *args, **kwargs):

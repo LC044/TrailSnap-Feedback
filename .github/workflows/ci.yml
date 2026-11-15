@@ -87,6 +87,17 @@ jobs:
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=tag
+      - name: Build native runner test image
+        if: matrix.component == 'server'
+        uses: docker/build-push-action@v6
+        with:
+          context: server
+          load: true
+          tags: trailsnap-feedback-native:test
+      - name: Verify native tools and Docker isolation
+        if: matrix.component == 'server'
+        shell: pwsh
+        run: tests/scripts/run-tests.ps1 tests/.env.test.ci -Layer unit -Component native-runner -Level all
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.component }}

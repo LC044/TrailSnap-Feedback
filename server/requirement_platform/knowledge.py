@@ -4,6 +4,8 @@ import gzip
 import re
 import tarfile
 import time
+import uuid
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from html.parser import HTMLParser
@@ -15,16 +17,14 @@ from xml.etree import ElementTree
 import httpx
 from sqlalchemy.dialects.sqlite import insert
 
-from .collaboration_models import AIQuota, KnowledgeFile, KnowledgeSnapshot
+from .collaboration_models import AIQuota, KnowledgeSnapshot
 from .db import SessionLocal
 from .models import utcnow
+from .config import settings
 
 REPO = "LC044/TrailSnap"
 ORIGIN = "https://trailsnap.cn"
-TOOLS = frozenset({"read_trailsnap_source", "search_official_docs"})
-INDEX_VERSION = 1
-TEXT_SUFFIXES = {".py", ".vue", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".css", ".scss", ".md", ".toml", ".yaml", ".yml",
-                 ".rs", ".ps1", ".sh", ".json", ".nsi", ".nsh", ".spec"}
+INDEX_VERSION = 2
 
 
 def download(url, limit, *, timeout=8, docs=False):
@@ -72,18 +72,12 @@ def archive_files(stream, revision):
             if entry.name.startswith("/") or "\\" in entry.name or ".." in parts or len(parts) < 2:
                 continue
             path = PurePosixPath(*parts[1:])
-            if not entry.isfile() or not 0 < entry.size <= 192000 or not (
-                path.suffix in TEXT_SUFFIXES or path.name == "Dockerfile" or path.name.startswith("Dockerfile.")):
+            if not entry.isfile() or not 0 < entry.size <= 1024 * 1024:
                 continue
-            if any(p.startswith(".") or p in {"node_modules", "vendor", "dist", "data", "uploads"} for p in path.parts):
+            if any(p in {".git", "node_modules", "vendor", "dist", "data", "uploads"} or p.startswith(".env") for p in path.parts):
                 continue
-            if not (str(path).startswith(("package/", "doc/", "scripts/")) or str(path) in {"README.md", "CONTRIBUTING.md"}):
+            if any(word in path.name.lower() for word in ("secret", "credential")) or path.suffix in {".pem", ".key", ".p12", ".db", ".sqlite", ".sqlite3"}:
                 continue
-            if any(word in path.name.lower() for word in ("secret", "credential", "lock")):
-                continue
-            selected += entry.size
-            if selected > 24 * 1024 * 1024 or len(result) >= 5000:
-                raise ValueError("Source index limit exceeded")
             data = archive.extractfile(entry).read()
             if b"\x00" in data:
                 continue
@@ -91,6 +85,9 @@ def archive_files(stream, revision):
                 content = data.decode("utf-8")
             except UnicodeDecodeError:
                 continue
+            selected += entry.size
+            if selected > 48 * 1024 * 1024 or len(result) >= 10000:
+                raise ValueError("Source cache limit exceeded")
             result.append(dict(path=str(path), kind="code", content=content,
                                url=f"https://github.com/{REPO}/blob/{revision}/{quote(str(path))}"))
     return result
@@ -119,8 +116,8 @@ def bundled_code(revision):
         return None
     try:
         with gzip.open(path, "rb") as stream:
-            body = stream.read(32 * 1024 * 1024 + 1)
-        if len(body) > 32 * 1024 * 1024:
+            body = stream.read(64 * 1024 * 1024 + 1)
+        if len(body) > 64 * 1024 * 1024:
             return None
         bundle = json.loads(body)
         return bundle["files"] if bundle["revision"] == revision and bundle.get("index_version") == INDEX_VERSION else None
@@ -203,29 +200,43 @@ def refresh_knowledge():
         tag, revision = resolve_latest()
         with SessionLocal() as db:
             old = db.get(KnowledgeSnapshot, 1)
-            same_revision = bool(old and old.revision == revision and old.index_version == INDEX_VERSION)
+            previous = current_manifest()
+            same_revision = bool(old and old.revision == revision and old.index_version == INDEX_VERSION
+                                 and previous and previous.get("revision") == revision)
         code = None if same_revision else bundled_code(revision)
-        if code is None and not same_revision:
+        if same_revision:
+            code = []
+            for key, row in previous["files"].items():
+                if row["kind"] == "code":
+                    code.append({**row, "content": (Path(settings.knowledge_dir) / previous["generation"] / key).read_text(encoding="utf-8")})
+        elif code is None:
             code = fetch_code(revision)
-        if code is not None and not code:
+        if not code:
             raise ValueError("Empty code snapshot")
         docs, expected = fetch_docs()
         if not docs:
             raise ValueError("Official documents unavailable")
+        manifest = publish_files(revision, code, docs)
         with SessionLocal() as db:
-            if code is not None:
-                db.query(KnowledgeFile).filter_by(kind="code").delete()
-                db.bulk_insert_mappings(KnowledgeFile, code)
-            db.query(KnowledgeFile).filter_by(kind="docs").delete()
-            db.bulk_insert_mappings(KnowledgeFile, docs)
             snapshot = db.get(KnowledgeSnapshot, 1) or KnowledgeSnapshot(id=1)
             snapshot.tag, snapshot.revision, snapshot.refreshed_at = tag, revision, utcnow()
             snapshot.index_version = INDEX_VERSION
-            snapshot.code_count = db.query(KnowledgeFile).filter_by(kind="code").count()
+            snapshot.code_count = len(code)
             snapshot.docs_count = len(docs)
             snapshot.warning = "部分官网文档暂不可用" if len(docs) < expected else None
             db.add(snapshot)
             db.commit()
+        marker = Path(settings.knowledge_dir) / "current-next.json"
+        marker.write_text(json.dumps(manifest), encoding="utf-8")
+        marker.replace(Path(settings.knowledge_dir) / "current.json")
+        # Retain recent immutable generations so admitted runs can finish.
+        # Delete only our generated public-cache directories, never arbitrary paths.
+        root = Path(settings.knowledge_dir).resolve()
+        for entry in root.iterdir():
+            if (re.fullmatch(r"[0-9a-f]{40}-[0-9a-f]{16}", entry.name) and entry.is_dir()
+                    and not entry.is_symlink() and entry.name != manifest["generation"]
+                    and time.time() - entry.stat().st_mtime > 86400):
+                shutil.rmtree(entry)
         success = True
     finally:
         with SessionLocal() as db:
@@ -234,77 +245,93 @@ def refresh_knowledge():
             db.commit()
 
 
+def current_manifest():
+    try:
+        value = json.loads((Path(settings.knowledge_dir) / "current.json").read_text(encoding="utf-8"))
+        return value if value.get("format") == INDEX_VERSION else None
+    except (OSError, ValueError):
+        return None
+
+
+def publish_files(revision, code, docs):
+    """Materialize public text, never tar extraction or a keyword/vector index."""
+    generation = revision + "-" + uuid.uuid4().hex[:16]
+    root = Path(settings.knowledge_dir) / generation
+    root.mkdir(parents=True, mode=0o755)
+    files = {}
+    for row in code + docs:
+        relative = "source/" + row["path"] if row["kind"] == "code" else "docs/" + row["path"].removeprefix("/docs/").strip("/") + ".md"
+        path = PurePosixPath(relative)
+        if path.is_absolute() or ".." in path.parts or "\\" in relative:
+            raise ValueError("Invalid public path")
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(row["content"], encoding="utf-8")
+        files[relative] = {"path": row["path"], "url": row["url"], "kind": row["kind"]}
+    manifest = {"format": INDEX_VERSION, "generation": generation, "revision": revision, "files": files}
+    (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
+
+
 def status(db):
     row = db.get(KnowledgeSnapshot, 1)
     if not row:
         refresh = db.get(AIQuota, "knowledge-refresh")
         return {"ready": False, "message": "资料下载暂时失败，后台会自动重试" if refresh and refresh.used == 2 else "代码与文档正在准备，请稍后再试"}
+    manifest = current_manifest()
+    if not manifest or manifest["revision"] != row.revision:
+        return {"ready": False, "tag": row.tag, "revision": row.revision, "message": "公开源码与文档正在准备"}
     stale = utcnow().replace(tzinfo=None) - row.refreshed_at.replace(tzinfo=None) > timedelta(hours=12)
     return {"ready": True, "tag": row.tag, "revision": row.revision, "refreshed_at": row.refreshed_at.isoformat(),
             "docs_count": row.docs_count, "code_count": row.code_count, "stale": stale, "warning": row.warning,
-            "index_version": row.index_version}
+            "index_version": row.index_version, "generation": manifest["generation"]}
 
 
 class ReadOnlyKnowledge:
-    """One run, one immutable revision, bounded literal searches and reads."""
+    """Snapshot metadata and citations only. DSH searches real files itself."""
     def __init__(self):
         with SessionLocal() as db:
             self.snapshot = status(db)
-        # Load the large index only when the admitted model actually requests a
-        # tool, inside the global model lease, not for every inbound HTTP request.
-        self.files = None
-        self.calls = 0
         self.sources = {}
+        self.generation = self.snapshot.get("generation")
+        self._manifest = None
 
-    def excerpt(self, row, start, end):
-        lines = row["content"].splitlines()
-        text = "\n".join(f"{i + 1}: {line[:500]}" for i, line in enumerate(lines[start - 1:end], start - 1))[:5000]
-        source = {"path": row["path"], "url": row["url"] + (f"#L{start}" if row["kind"] == "code" else ""),
-                  "kind": row["kind"], "line": start}
-        self.sources[(row["path"], start)] = source
-        return {**source, "text": text}
-
-    def execute(self, name, args):
-        self.calls += 1
-        if name not in TOOLS or self.calls > 6 or not isinstance(args, dict):
-            raise ValueError("Retrieval limit exceeded")
-        if not self.snapshot["ready"]:
-            return {"unavailable": True, "message": self.snapshot["message"]}
-        if self.files is None:
-            with SessionLocal() as db:
-                db.connection().exec_driver_sql("BEGIN")
-                current = status(db)
-                if current.get("revision") != self.snapshot.get("revision") or current.get("refreshed_at") != self.snapshot.get("refreshed_at"):
-                    return {"unavailable": True, "message": "资料刚刚更新，请重新提问以使用最新快照"}
-                self.files = {r.path: {"path": r.path, "kind": r.kind, "url": r.url, "content": r.content}
-                              for r in db.query(KnowledgeFile)}
-        kind = "docs" if name == "search_official_docs" else "code"
-        if "path" in args:
-            if set(args) - {"path", "start_line"} or not isinstance(args.get("path"), str):
-                raise ValueError("Invalid source path")
-            row = self.files.get(args["path"])
-            start = args.get("start_line", 1)
-            if not row or row["kind"] != kind or type(start) is not int or not 1 <= start <= 100000:
-                raise ValueError("Source unavailable")
-            return self.excerpt(row, start, start + 49)
-        query = args.get("query")
-        if set(args) != {"query"} or not isinstance(query, str) or not 1 <= len(query.strip()) <= 120:
-            raise ValueError("Invalid search")
-        # Literal terms only; never a shell command, regex, SQL fragment or URL.
-        raw_terms = re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,40}|[\u4e00-\u9fff]{2,20}", query.lower())
-        terms = list(dict.fromkeys(raw_terms + [term[i:i + 2] for term in raw_terms if re.fullmatch(r"[\u4e00-\u9fff]+", term) for i in range(len(term) - 1)]))
-        terms = [term for term in terms if term not in {"行影集", "如何", "怎么", "什么", "问题", "的使", "使用"}][:20]
-        ranked = []
-        for row in self.files.values():
-            if row["kind"] != kind:
+    def observe(self, messages):
+        if not self.generation:
+            return
+        if self._manifest is None:
+            manifest = Path(settings.knowledge_dir) / self.generation / "manifest.json"
+            self._manifest = json.loads(manifest.read_text(encoding="utf-8"))["files"]
+        calls = {}
+        for message in messages:
+            blocks = message.get("content", [])
+            if not isinstance(blocks, list):
                 continue
-            content = row["content"].lower()
-            score = sum((min(content.count(term), 8) + (10 if term in row["path"].lower() else 0)) * min(len(term), 8) for term in terms)
-            if score:
-                ranked.append((score, row))
-        result = []
-        for _, row in sorted(ranked, key=lambda pair: (-pair[0], pair[1]["path"]))[:3]:
-            lines = row["content"].splitlines()
-            hit = max(range(len(lines)), key=lambda i: sum(len(t) for t in terms if t in lines[i].lower()), default=0)
-            result.append(self.excerpt(row, max(1, hit - 3), hit + 24))
-        return {"snapshot": self.snapshot, "results": result}
+            for block in blocks:
+                if not isinstance(block, dict):
+                    continue
+                if block.get("type") == "tool_use":
+                    calls[block.get("id")] = block
+                elif block.get("type") == "tool_result" and not block.get("is_error"):
+                    call = calls.get(block.get("tool_use_id"), {})
+                    args = call.get("input", {})
+                    if call.get("name") == "read":
+                        self.add_source(args.get("file_path", ""), args.get("offset", 1))
+                    # Search/shell result paths are references returned by actual
+                    # native tools, never generated by our own search algorithm.
+                    text = json.dumps(block.get("content", ""), ensure_ascii=False)[:24000]
+                    for path in re.findall(r"(?:source|docs)/[A-Za-z0-9_./@+%()\-]+", text):
+                        self.add_source(path.rstrip(".:"), 1)
+
+    def add_source(self, path, line=1):
+        if not isinstance(path, str):
+            return
+        for prefix in ("source/", "docs/"):
+            if prefix in path:
+                key = prefix + path.split(prefix, 1)[1]
+                row = self._manifest.get(key)
+                if row and len(self.sources) < 30:
+                    line = line if type(line) is int and line > 0 else 1
+                    self.sources[(key, line)] = {**row, "line": line,
+                        "url": row["url"] + (f"#L{line}" if row["kind"] == "code" else "")}
+                break

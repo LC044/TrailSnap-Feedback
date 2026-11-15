@@ -1,4 +1,4 @@
-"""One-request local gateway: bound SDK retries, payload, output and spend."""
+"""Per-run gateway: authenticate isolated SDK, bound payload, retries and spend."""
 import json
 import secrets
 import threading
@@ -23,7 +23,10 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 @contextmanager
-def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
+def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remote=False, knowledge=None):
+    from .chat_activity import emit, observer
+    activity = observer.get()
+    gateway_token = secrets.token_urlsafe(32) if remote else None
     principal = model_principal.get()  # Capture before crossing into HTTP server threads.
     call_budget = model_call_budget.get()
     # One global in-flight request across workers/replicas sharing the SQLite volume.
@@ -38,6 +41,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
             raise RuntimeError("AI 正忙，请稍后重试")
     lock = threading.Lock()
     called = 0
+    completed_tools = set()
     run_deadline = min(time.monotonic() + 100, call_budget["deadline"]) if call_budget else time.monotonic() + 100
     quota_error = None
     class Handler(BaseHTTPRequestHandler):
@@ -47,6 +51,8 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
         def do_POST(self):
             nonlocal called, quota_error
             usage_id, response_body, succeeded = None, bytearray(), False
+            if gateway_token and not secrets.compare_digest(self.headers.get("x-api-key", ""), gateway_token):
+                self.send_error(403); return
             with lock:
                 if called >= max_requests or time.monotonic() >= run_deadline:
                     self.send_error(429); return
@@ -58,6 +64,22 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
                 if not 0 < size <= 48000:
                     self.send_error(413); return
                 payload = json.loads(self.rfile.read(size))
+                names = {}
+                for message in payload.get("messages", []):
+                    content = message.get("content", [])
+                    for block in content if isinstance(content, list) else []:
+                        if not isinstance(block, dict):
+                            continue
+                        if block.get("type") == "tool_use":
+                            names[block.get("id")] = block.get("name")
+                        elif block.get("type") == "tool_result":
+                            tool_id = block.get("tool_use_id")
+                            name = names.get(tool_id)
+                            if name in allowed_tools and tool_id not in completed_tools:
+                                completed_tools.add(tool_id)
+                                emit(name, "failed" if block.get("is_error") else "completed", sink=activity)
+                if knowledge is not None:
+                    knowledge.observe(payload.get("messages", []))
                 tools = payload.get("tools") or []
                 if len(tools) > len(allowed_tools) or any(not isinstance(t, dict) or t.get("name") not in allowed_tools for t in tools):
                     self.send_error(403); return
@@ -76,6 +98,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
                     system = payload.get("system") or []
                     payload["system"] = ([{"type": "text", "text": system}] if isinstance(system, str) else list(system)) + [instruction]
                 payload["max_tokens"] = settings.ai_max_output_tokens
+                payload["model"] = target.model_name
                 body = json.dumps(payload, ensure_ascii=False).encode()
                 if len(body) > 48000:
                     self.send_error(413); return
@@ -117,6 +140,16 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
                 # No upstream diagnostics/keys to the SDK or browser.
                 self.send_error(503, "AI temporarily unavailable")
             finally:
+                if succeeded and response_body:
+                    for line in bytes(response_body).splitlines():
+                        if line.startswith(b"data:"):
+                            try:
+                                event = json.loads(line[5:])
+                                block = event.get("content_block", {})
+                                if block.get("type") == "tool_use" and block.get("name") in allowed_tools:
+                                    emit(block["name"], sink=activity)
+                            except (ValueError, AttributeError):
+                                pass
                 if usage_id:
                     from .model_usage import reported_usage
                     incoming, outgoing = reported_usage(bytes(response_body))
@@ -125,13 +158,16 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1):
                             {"status": "completed" if succeeded else "failed", "input_tokens": incoming, "output_tokens": outgoing})
                         db.commit()
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0" if remote else "127.0.0.1", 0), Handler)
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         try:
-            yield f"http://127.0.0.1:{server.server_port}"
+            if remote:
+                yield {"url": f"http://{settings.dsh_gateway_host}:{server.server_port}", "token": gateway_token}
+            else:
+                yield f"http://127.0.0.1:{server.server_port}"
         except Exception:
             if quota_error:
                 raise quota_error from None

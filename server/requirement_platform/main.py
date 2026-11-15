@@ -85,6 +85,8 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="TrailSnap Requirement Platform", version="0.1.0", lifespan=lifespan)
+from .runner_boundary import RunnerBoundary
+app.add_middleware(RunnerBoundary)
 app.include_router(usage_api.router)
 app.include_router(admin_router)
 app.include_router(auth_router)

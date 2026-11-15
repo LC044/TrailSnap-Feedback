@@ -104,7 +104,7 @@ def complete_intake(payload, previous, subject, key, anonymous, db):
     if not allowed:
         result = IntakeReply(reply=REFUSAL, draft=previous.get("draft"))
     else:
-        prompt = {"task": "与用户讨论行影集的问题并整理需求。仅返回符合 schema 的 JSON，reply 简短回复并最多追问两个问题。信息足够时 draft 填写需求单，否则为 null。已有 draft 应按用户补充修订。不得编造复现步骤或断言已提交。用户将在预览后点击确认提交，工具不可用。整体不超过 800 字。",
+        prompt = {"task": "与用户讨论行影集的问题并整理需求。仅返回符合 schema 的 JSON，reply 简短回复并最多追问两个问题。信息足够时 draft 填写需求单，否则为 null。已有 draft 应按用户补充修订。可使用原生工具查阅源码与官网文档。不得编造复现步骤或断言已提交。用户将在预览后点击确认提交。整体不超过 800 字。",
                   "schema": IntakeReply.model_json_schema(), "history": previous["history"],
                   "previous_draft": previous.get("draft"), "user_message": payload.content}
         try:

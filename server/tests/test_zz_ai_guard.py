@@ -83,7 +83,7 @@ def test_gateway_allows_one_request_and_caps_output():
             self.send_response(200); self.end_headers(); self.wfile.write(b'{}')
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-    target = SimpleNamespace(api_base=f'http://127.0.0.1:{server.server_port}/v1', api_key='upstream-only-key', timeout_seconds=5)
+    target = SimpleNamespace(model_name='test', api_base=f'http://127.0.0.1:{server.server_port}/v1', api_key='upstream-only-key', timeout_seconds=5)
     try:
         with bounded_endpoint(target) as endpoint:
             body = json.dumps({'model': 'test', 'messages': [], 'max_tokens': 999999}).encode()
