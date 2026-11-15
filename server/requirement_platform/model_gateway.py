@@ -6,8 +6,7 @@ import time
 from contextlib import contextmanager
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.request import Request, urlopen
-from urllib.error import HTTPError
+from urllib.request import Request, build_opener, HTTPRedirectHandler
 
 from sqlalchemy.dialects.sqlite import insert
 from .ai_guard import reserve_model
@@ -15,6 +14,11 @@ from .collaboration_models import AIQuota
 from .db import SessionLocal
 from .config import settings
 from .models import utcnow
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *_args, **_kwargs):
+        return None
 
 
 @contextmanager
@@ -61,7 +65,7 @@ def bounded_endpoint(target):
                 headers = {"Content-Type": "application/json", "x-api-key": target.api_key,
                            "anthropic-version": "2023-06-01", "Accept-Encoding": "identity"}
                 deadline = time.monotonic() + 90
-                with urlopen(Request(url, data=body, headers=headers), timeout=min(target.timeout_seconds, 10)) as response:
+                with build_opener(NoRedirect).open(Request(url, data=body, headers=headers), timeout=min(target.timeout_seconds, 10)) as response:
                     self.send_response(200)
                     self.send_header("Content-Type", response.headers.get("Content-Type", "text/event-stream"))
                     self.end_headers()

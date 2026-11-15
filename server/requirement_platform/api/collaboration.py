@@ -61,7 +61,7 @@ def read_conversation(requirement_id: str, user: User | None = Depends(optional_
     conversation = get_conversation(db, requirement, principal)
     messages = db.query(ConversationMessage).filter_by(conversation_id=conversation.id).order_by(ConversationMessage.created_at).all() if conversation else []
     return ok({"messages": [message_data(db, m) for m in messages], "can_plan": bool(user and user.role in {"admin", "owner"}),
-               "quota": quota_view(db, principal, not bool(user), len(messages))})
+               "quota": quota_view(db, principal, principal.startswith("receipt:"), len(messages))})
 
 
 @router.post("/api/requirements/{requirement_id}/conversation")
@@ -93,7 +93,7 @@ def send_message(requirement_id: str, payload: MessageInput, request: Request, u
     count = db.query(ConversationMessage).filter_by(conversation_id=conversation.id).count()
     if count >= 100:
         raise HTTPException(429, "此对话已达到 100 条消息上限")
-    admit_chat(db, principal, request.client.host if request.client else "unknown", not bool(user))
+    admit_chat(db, principal, request.client.host if request.client else "unknown", principal.startswith("receipt:"))
     message = ConversationMessage(conversation_id=conversation.id, **payload.model_dump())
     allowed = permitted_topic(payload.content)
     if not allowed:
@@ -124,7 +124,7 @@ def retry_message(requirement_id: str, message_id: str, request: Request, user: 
     others = db.query(ConversationMessage).filter(ConversationMessage.conversation_id == conversation.id, ConversationMessage.id != message.id, ConversationMessage.status.in_(["queued", "running"])).all()
     if any(message_data(db, m)["status"] != "failed" for m in others):
         raise HTTPException(409, "请等待上一条消息完成")
-    admit_chat(db, principal, request.client.host if request.client else "unknown", not bool(user))
+    admit_chat(db, principal, request.client.host if request.client else "unknown", principal.startswith("receipt:"))
     job.status, job.attempts, job.available_at, job.last_error = "queued", 0, utcnow(), None
     message.status = "queued"
     db.commit()

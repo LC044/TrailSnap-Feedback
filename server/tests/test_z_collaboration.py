@@ -137,6 +137,41 @@ def test_consultation_is_delivered_to_submitters_private_conversation():
         assert client.get(url + "/conversation", headers=receipt).json()["data"]["messages"][0]["response"] == "请提供复现步骤"
 
 
+def test_smtp_success_is_fenced_and_old_discussion_link_is_revoked(monkeypatch):
+    from requirement_platform.notifications import subscribe
+    sent = []
+    class SMTP:
+        def __init__(self, *args, **kwargs): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def send_message(self, message): sent.append(message)
+    monkeypatch.setattr(notifications.smtplib, "SMTP", SMTP)
+    monkeypatch.setattr(notifications, "settings", replace(notifications.settings, smtp_host="mock-only", smtp_from="test@example.com", smtp_tls="none", smtp_username=""))
+    with TestClient(app) as client:
+        row = create(client, notification_email=f"{uuid4().hex}@example.com", notification_opt_in=True)
+        receipt = {"X-Requirement-Edit-Token": row["edit_token"]}
+        with SessionLocal() as db:
+            sub = db.query(EmailSubscription).filter_by(requirement_id=row['id']).one()
+            sub.verified = True
+            mail = db.query(EmailDelivery).filter_by(subscription_id=sub.id).one()
+            mail.status, mail.lease_token = 'sending', 'current-lease'
+            db.commit()
+            send_email(db, mail.id, 'stale-lease')
+            assert not sent
+            send_email(db, mail.id, 'current-lease')
+            db.expire_all()
+            assert db.get(EmailDelivery, mail.id).status == 'sent' and len(sent) == 1
+            sub_id, address = sub.id, sub.email
+        old = subscription_token(sub_id, 'conversation')
+        url = f"/api/requirements/{row['id']}/conversation"
+        assert client.get(url, headers={'X-Requirement-Edit-Token':old}).status_code == 200
+        assert client.post('/api/notifications/unsubscribe', json={'token':subscription_token(sub_id,'unsubscribe')}).status_code == 200
+        assert client.get(url, headers={'X-Requirement-Edit-Token':old}).status_code == 403
+        assert client.post(f"/api/requirements/{row['id']}/notifications",headers=receipt,json={'email':address}).status_code == 200
+        assert client.post('/api/notifications/verify',json={'token':subscription_token(sub_id,'verify')}).status_code == 200
+        assert client.get(url, headers={'X-Requirement-Edit-Token':old}).status_code == 403
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="Official 0.2.2rc2 Windows wheel fails loading its native binding; exercised in Linux image/CI")
 def test_official_sdk_runs_with_no_tools_or_telemetry(tmp_path, monkeypatch):
     from requirement_platform.db import init_db
