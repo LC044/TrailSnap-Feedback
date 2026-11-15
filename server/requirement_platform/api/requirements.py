@@ -110,7 +110,7 @@ def create_requirement(payload: RequirementCreate, user: User | None = Depends(o
         values["environment"] = {**values.get("environment", {}), "ai_preflight_answers": preflight_answers}
     if user:
         values["submitter_name"] = None
-        values["submitter_contact"] = None
+        values["submitter_contact"] = str(notification_email) if notification_email else None
     else:
         values["visibility"] = "public"
         values["submitter_name"] = (values.get("submitter_name") or "").strip() or None

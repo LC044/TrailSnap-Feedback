@@ -21,6 +21,7 @@ const tabRoutes: Array<[AppTab, string]> = [
 ]
 
 const routes: RouteRecordRaw[] = [
+  { path: '/requirements/discuss', name: 'requirement-intake', component: RouteTarget, meta: { tab: 'submit' } },
   { path: '/requirements/REQ-:number(\\d+)/conversation', name: 'requirement-conversation', component: RouteTarget, meta: { tab: 'public' } },
   { path: '/notifications/:action(verify|unsubscribe)', name: 'notification-confirm', component: RouteTarget, meta: { tab: 'public' } },
   ...tabRoutes.map(([name, path]) => ({ path, name, component: RouteTarget, meta: { tab: name } })),

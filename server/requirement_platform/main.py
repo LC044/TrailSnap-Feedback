@@ -58,6 +58,7 @@ from .api.github import router as github_router
 from .api.requirements import router as requirements_router
 from .api.releases import router as releases_router
 from .api.collaboration import router as collaboration_router
+from .api.intake import router as intake_router
 
 def agent_with_scope(required_scope: str | None = None):
     def dependency(authorization: str | None = Header(default=None, alias="Authorization"), db: Session = Depends(get_db)):
@@ -90,6 +91,7 @@ app.include_router(github_router)
 app.include_router(requirements_router)
 app.include_router(releases_router)
 app.include_router(collaboration_router)
+app.include_router(intake_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),

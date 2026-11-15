@@ -24,6 +24,7 @@
         <el-option label="最新更新" value="updated" /><el-option label="最早提交" value="oldest" /><el-option label="关注最多" value="followers" />
       </el-select>
       <el-button class="submit-requirement-btn" type="primary" :icon="Plus" @click="$emit('submit')">提交需求</el-button>
+      <el-button @click="$emit('discuss')">与 AI 讨论需求</el-button>
     </div>
     <RequirementTable :items="items" :manager="manager" :user="user" @open="$emit('open', $event)" @action="$emit('action', $event)" />
   </section>
@@ -48,6 +49,7 @@ defineProps<{
 defineEmits<{
   reload: []
   submit: []
+  discuss: []
   open: [item: Requirement]
   action: [payload: { item: Requirement; command: string }]
   'update:sortBy': [value: string]

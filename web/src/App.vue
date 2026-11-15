@@ -5,7 +5,8 @@
 
     <main class="main">
       <!-- ============ 需求详情页 ============ -->
-      <ConversationPage v-if="route.name === 'requirement-conversation'" :key="String(route.params.number)" :number="Number(route.params.number)" />
+      <IntakePage v-if="route.name === 'requirement-intake'" />
+      <ConversationPage v-else-if="route.name === 'requirement-conversation'" :key="String(route.params.number)" :number="Number(route.params.number)" />
       <NotificationConfirmPage v-else-if="route.name === 'notification-confirm'" />
       <NotificationAdminPage v-else-if="tab === 'notifications' && isManager" />
       <section v-else-if="detailRouteNumber">
@@ -41,7 +42,7 @@
 
       <PublicRequirementsPage v-else-if="tab === 'public'" :stats="stats" :filters="filters" :status-options="statusOptions"
         v-model:sort-by="sortBy" :items="sortedRequirements" :manager="isManager" :user="user"
-        @reload="loadRequirements" @submit="switchTab('submit')" @open="openDetail" @action="onRowAction" />
+        @reload="loadRequirements" @submit="switchTab('submit')" @discuss="router.push({ name: 'requirement-intake' })" @open="openDetail" @action="onRowAction" />
 
       <!-- ============ 管理总览 ============ -->
       <DashboardPage v-else-if="tab === 'dashboard' && isManager && dashboard" :data="dashboard" :loading="dashboardLoading"
@@ -60,6 +61,10 @@
           </div>
         </div>
 
+        <div class="panel" style="margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div><strong>不确定怎么写？先和 AI 聊聊</strong><p class="sub">描述遇到的问题，AI 帮你整理需求单，确认后即可提交。</p></div>
+          <el-button type="primary" @click="router.push({ name: 'requirement-intake' })">与 AI 讨论需求</el-button>
+        </div>
         <SubmissionResult v-if="submittedRequirement" :requirement="submittedRequirement" :has-receipt="!!receipts.tokenFor(submittedRequirement.id)"
           @open="openAnalyzedRequirement" @save="saveManagementLink(submittedRequirement)" @continue-a-i="continueWithAI(submittedRequirement)" />
         <div class="submit-layout">
@@ -67,6 +72,7 @@
             <el-alert v-if="!user" type="info" :closable="false" show-icon title="你正在匿名提交">
               无需登录即可提交。昵称和联系方式均为可选，联系方式仅管理员可见；匿名需求将公开展示。
             </el-alert>
+            <RequirementContact v-model:email="requirementForm.notification_email" v-model:opt-in="requirementForm.notification_opt_in" />
             <div class="section">
               <h2 class="section-head"><el-icon><DocumentAdd /></el-icon>基本信息</h2>
               <el-form-item label="类型" required>
@@ -88,10 +94,6 @@
               <div v-if="!user" class="form-grid">
                 <el-form-item label="提交人昵称（可选）">
                   <el-input v-model="requirementForm.submitter_name" maxlength="50" show-word-limit placeholder="如何称呼你" />
-                </el-form-item>
-                <el-form-item label="联系方式（可选）">
-                  <el-input v-model="requirementForm.submitter_contact" maxlength="255" show-word-limit placeholder="邮箱或其他联系方式" />
-                  <div class="field-hint">建议留下邮箱，方便后续讨论；联系方式不会出现在公开页面。</div>
                 </el-form-item>
               </div>
             </div>
@@ -165,11 +167,6 @@
               </div>
             </div>
 
-            <el-form-item label="接收进度与讨论通知（可选）">
-              <el-input v-model="requirementForm.notification_email" type="email" maxlength="255" placeholder="你的邮箱" />
-              <el-checkbox v-model="requirementForm.notification_opt_in">订阅此需求的进度、发版和讨论邮件，可随时退订</el-checkbox>
-              <div class="field-hint">提交后请到邮箱确认订阅。AI 会在后台分析，有问题时可以通过邮件邀请你继续讨论。</div>
-            </el-form-item>
             <div class="submit-quota">所有非管理员用户合计每小时最多提交 20 条需求。</div>
             <div class="actions">
               <el-button type="primary" size="large" :icon="Promotion" :loading="busy" native-type="submit">提交需求</el-button>
@@ -418,6 +415,8 @@ import logoUrl from './assets/logo.svg'
 import { api, type AgentToken, type Batch, type Dashboard, type Requirement, type RequirementHistory, type RequirementSupplement, type User as ApiUser } from './api'
 import SubmissionResult from './SubmissionResult.vue'
 import ConversationPage from './views/conversations/ConversationPage.vue'
+import IntakePage from './views/conversations/IntakePage.vue'
+import RequirementContact from './components/RequirementContact.vue'
 import NotificationConfirmPage from './views/notifications/NotificationConfirmPage.vue'
 import NotificationAdminPage from './views/notifications/NotificationAdminPage.vue'
 import { APP_SITE_URL, appUrl } from './runtimeBase'
@@ -730,9 +729,10 @@ async function submitRequirement() {
   const descriptionLength = requirementForm.description.trim().length
   if (titleLength < 4 || titleLength > 160) { ElMessage.error('标题需要 4–160 个字符'); return }
   if (descriptionLength < 10 || descriptionLength > 8000) { ElMessage.error('需求描述需要 10–8,000 个字符'); return }
+  if (requirementForm.notification_opt_in && !requirementForm.notification_email.trim()) { ElMessage.error('请填写联系邮箱，或取消订阅'); return }
   busy.value = true
   try {
-    const payload = { ...requirementForm, notification_email: requirementForm.notification_email.trim() || null }
+    const payload = { ...requirementForm, submitter_contact: requirementForm.notification_email.trim(), notification_email: requirementForm.notification_email.trim() || null }
     let anonymousPayload: typeof payload & { client_edit_token?: string } = payload
     if (!user.value) {
       const pendingKey = 'rp_pending_submission'
