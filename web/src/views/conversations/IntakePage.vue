@@ -1,20 +1,22 @@
 <template>
   <section class="intake-page">
-    <header><div><h1>与 AI 讨论需求</h1><p>说说你的想法，需求单交给 AI 整理。</p></div><el-button @click="router.push({ name: 'submit' })">填写表单</el-button></header>
-    <ol class="flow" aria-label="提交步骤"><li class="active">1 描述想法</li><li :class="{ active: !!draft }">2 整理需求</li><li>3 确认提交</li></ol>
+    <header><div><h1>行影集 AI 助手</h1><p>反馈想法、排查问题，或了解使用方法。</p></div><el-button @click="router.push({ name: 'submit' })">填写表单</el-button></header>
+    <div class="mode-tabs" role="group" aria-label="讨论类型"><button v-for="item in modes" :key="item.value" type="button" :aria-pressed="mode === item.value" :disabled="sending" @click="mode = item.value">{{ item.label }}</button></div>
+    <div class="knowledge-status" role="status"><span class="status-dot" :class="{ ready: snapshot?.ready }"></span><span>{{ snapshot?.ready ? `基于 ${snapshot.tag} 源码与官网文档` : snapshot?.message || '正在读取资料状态…' }}</span><small v-if="snapshot?.stale">资料更新中，当前使用缓存</small><small v-if="snapshot?.warning">{{ snapshot.warning }}</small></div>
     <div class="intake-workspace"><div class="chat-area">
     <div ref="timeline" class="timeline" role="log" aria-label="提交前需求讨论" aria-live="polite">
-      <div v-if="!messages.length" class="welcome"><span class="welcome-mark" aria-hidden="true">✦</span><h2>哪里可以更好？</h2><div class="starter-options"><button v-for="sample in samples" :key="sample" type="button" @click="content = sample">{{ sample }}</button></div></div>
+      <div v-if="!messages.length" class="welcome"><span class="welcome-mark" aria-hidden="true">✦</span><h2>{{ mode === 'consultation' ? '想了解什么？' : mode === 'bug' ? '遇到了什么问题？' : '哪里可以更好？' }}</h2><div class="starter-options"><button v-for="sample in samples" :key="sample" type="button" @click="content = sample">{{ sample }}</button></div></div>
       <article v-for="(message, index) in messages" :key="index" :class="message.role">
         <strong>{{ message.role === 'user' ? '你' : '行影集 AI 助手' }}</strong>
         <div v-if="message.role === 'assistant'" class="response" v-html="renderConversationMarkdown(message.text)"></div><p v-else>{{ message.text }}</p>
+        <details v-if="message.sources?.length" class="sources"><summary>参考资料 · {{ message.sources.length }}</summary><a v-for="source in message.sources" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.kind === 'code' ? '源码' : '文档' }} · {{ source.path }}<span v-if="source.kind === 'code'">:{{ source.line }}</span></a></details>
       </article>
       <article v-if="sending" class="assistant"><ThinkingDots /></article>
     </div>
     <form class="panel composer" @submit.prevent="send">
       <ChatQuota :quota="quota" />
       <el-input v-model="content" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" resize="none" maxlength="2000" show-word-limit aria-label="讨论内容" placeholder="描述问题，或回答 AI 的提问…" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
-      <div class="actions"><span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : '仅讨论行影集' }}</span><el-button type="primary" native-type="submit" :loading="sending" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">发送</el-button></div>
+      <div class="actions"><span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : '只读分析 · 仅讨论行影集' }}</span><el-button type="primary" native-type="submit" :loading="sending" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">发送</el-button></div>
     </form>
     <button v-if="draft" class="mobile-preview-toggle" type="button" :aria-expanded="showPreview" @click="showPreview = !showPreview">{{ showPreview ? '收起需求单 ↑' : '查看需求单 · 确认提交 →' }}</button>
     </div>
@@ -35,11 +37,11 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { api, type Requirement } from '../../api'
-import { intake, type Draft } from '../../api/intake'
+import { intake, type Draft, type ChatMode, type Source, type Snapshot } from '../../api/intake'
 import type { Quota } from '../../api/collaboration'
 import { newEditToken, useAnonymousReceipts } from '../../stores/anonymousReceipts'
 import { renderConversationMarkdown } from '../../conversationMarkdown'
@@ -50,18 +52,20 @@ import ThinkingDots from '../../components/ThinkingDots.vue'
 const router = useRouter(), receipts = useAnonymousReceipts()
 const content = ref(''), email = ref(''), optIn = ref(false), sending = ref(false), submitting = ref(false), submitted = ref(false)
 const draft = ref<Draft | null>(null), quota = ref<Quota>(), cooldown = ref(0)
-const messages = ref<{ role: string; text: string }[]>([])
-const samples = ['行影集照片导出失败', '想改进人物相册', '行影集地图轨迹有问题']
+const messages = ref<{ role: string; text: string; sources?: Source[] }[]>([])
+const mode = ref<ChatMode>('feedback'), snapshot = ref<Snapshot>()
+const modes: { value: ChatMode; label: string }[] = [{ value: 'feedback', label: '✦ 需求反馈' }, { value: 'bug', label: '⌕ 问题排查' }, { value: 'consultation', label: '？使用咨询' }]
+const samples = computed(() => mode.value === 'consultation' ? ['行影集如何添加照片目录？', '行影集如何开启人脸识别？', '如何在飞牛 NAS 安装行影集？'] : mode.value === 'bug' ? ['行影集照片导出失败', '行影集登录后出现报错', '行影集地图轨迹有问题'] : ['行影集想增加批量操作', '想改进人物相册', '行影集照片导出体验优化'])
 const timeline = ref<HTMLElement | null>(null), showPreview = ref(false)
 let key = newEditToken(), state: string | undefined, creationKey = newEditToken()
 let pendingSubmission: Record<string, unknown> | undefined
 try {
   const saved = JSON.parse(sessionStorage.getItem('rp_intake') || 'null')
-  if (saved?.key && saved?.state) { key = saved.key; state = saved.state; messages.value = saved.messages || []; draft.value = saved.draft; creationKey = saved.creationKey || creationKey }
+  if (saved?.key && saved?.state) { key = saved.key; state = saved.state; messages.value = saved.messages || []; draft.value = saved.draft; creationKey = saved.creationKey || creationKey; if (modes.some(m => m.value === saved.mode)) mode.value = saved.mode }
 } catch { /* The current tab also keeps a copy in memory. */ }
 const timer = setInterval(() => { if (cooldown.value > 0) cooldown.value-- }, 1000)
 function persist() {
-  try { sessionStorage.setItem('rp_intake', JSON.stringify({ key, state, messages: messages.value, draft: draft.value, creationKey })) } catch { /* Continue in memory. */ }
+  try { sessionStorage.setItem('rp_intake', JSON.stringify({ key, state, messages: messages.value, draft: draft.value, creationKey, mode: mode.value })) } catch { /* Continue in memory. */ }
 }
 function reason(e: any) { return e?.response?.data?.msg || '暂时无法连接，请稍后重试，也可以填写表单提交' }
 async function scrollToEnd() { await nextTick(); if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight }
@@ -72,8 +76,9 @@ async function send() {
   messages.value.push({ role: 'user', text })
   await scrollToEnd()
   try {
-    const result = await intake.send(key, text, state)
-    messages.value.push({ role: 'assistant', text: result.reply })
+    const result = await intake.send(key, text, state, mode.value)
+    messages.value.push({ role: 'assistant', text: result.reply, sources: result.sources })
+    if (result.snapshot) snapshot.value = result.snapshot
     draft.value = result.draft; quota.value = result.quota; state = result.state; content.value = ''
     cooldown.value = (result.quota as Quota & { retry_after_seconds?: number }).retry_after_seconds || 0
     pendingSubmission = undefined; persist()
@@ -99,12 +104,13 @@ async function submit() {
     await router.push(`/requirements/REQ-${created.public_number}/conversation`)
   } catch (e) { ElMessage.error(reason(e)) } finally { submitting.value = false }
 }
-onMounted(async () => { try { quota.value = await intake.quota(key); cooldown.value = (quota.value as Quota & { retry_after_seconds?: number }).retry_after_seconds || 0 } catch (e) { ElMessage.error(reason(e)) } })
+onMounted(async () => { const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
 onBeforeUnmount(() => clearInterval(timer))
 </script>
 
 <style scoped>
 .intake-page { max-width:880px; margin:auto; }
+.mode-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.mode-tabs button{border:1px solid var(--rp-border);background:var(--rp-card);color:var(--rp-text-2);border-radius:12px;min-height:44px;padding:8px 16px;cursor:pointer}.mode-tabs button[aria-pressed=true]{color:var(--rp-primary);border-color:var(--rp-primary);background:var(--rp-primary-soft)}.knowledge-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--rp-text-3);margin-bottom:16px}.status-dot{width:6px;height:6px;border-radius:50%;background:var(--rp-text-3)}.status-dot.ready{background:var(--rp-primary)}.sources{font-size:12px;color:var(--rp-text-3);margin-top:12px}.sources summary{cursor:pointer;padding:8px 0}.sources a{display:block;color:var(--rp-primary);padding:6px 0;overflow-wrap:anywhere}
 header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
 h1 { margin:0 0 8px; font-size:24px; }h2 { font-size:19px; }
 p,.quota { color:var(--rp-text-2); line-height:1.7; }

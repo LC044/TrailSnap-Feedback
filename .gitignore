@@ -13,3 +13,5 @@ pytest-of-*/
 .playwright-cli/
 output/
 *.log
+# Public release cache is generated in the image, never committed.
+release-source.json.gz

@@ -36,14 +36,10 @@ def process_message(db, message_id):
                "history": [{"user": r.content[:500], "assistant": (r.response or '')[:800]} for r in reversed(history)], "user_message": message.content}
     message.status = "running"
     db.commit()
-    for target in targets[:1]:
-        try:
-            with chat_budget(conversation.principal, not conversation.principal.startswith("user:")):
-                response = dsh.run_harness(target, json.dumps(context, ensure_ascii=False), session_id=message.id)
-            break
-        except Exception:
-            continue
-    else:
+    try:
+        with chat_budget(conversation.principal, not conversation.principal.startswith("user:")):
+            response = dsh.run_with_fallback(targets, json.dumps(context, ensure_ascii=False), session_id=message.id)
+    except Exception:
         raise RuntimeError("AI 暂时不可用，请稍后重试或联系管理员")
     response = re.sub(r"deepseek(?:[-\s]+harness)?|\bdsh\b", "行影集 AI 助手", response, flags=re.I)
     message.response, message.status = response, "completed"

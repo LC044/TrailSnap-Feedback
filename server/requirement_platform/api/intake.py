@@ -25,6 +25,7 @@ class IntakeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     content: str = Field(min_length=1, max_length=2000)
     state: str | None = Field(default=None, max_length=65536)
+    mode: Literal["feedback", "bug", "consultation"] | None = None
 
 
 class RequirementDraft(BaseModel):
@@ -65,6 +66,12 @@ def intake_quota(user: User | None = Depends(optional_user), x_intake_key: str |
     return ok(quota_view(db, principal(user, x_intake_key), user is None, 0))
 
 
+@router.get("/knowledge")
+def knowledge_status(db: Session = Depends(get_db)):
+    from ..knowledge import status
+    return ok(status(db))
+
+
 @router.post("/messages")
 def intake_message(payload: IntakeInput, request: Request, user: User | None = Depends(optional_user),
                    x_intake_key: str | None = Header(default=None), db: Session = Depends(get_db)):
@@ -81,6 +88,7 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
     if previous.get("topic_established"):
         context += " 行影集"
     allowed = permitted_topic(payload.content, context)
+    knowledge = None
     if not allowed:
         result = IntakeReply(reply=REFUSAL, draft=previous.get("draft"))
     else:
@@ -88,18 +96,32 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
                   "schema": IntakeReply.model_json_schema(), "history": previous["history"],
                   "previous_draft": previous.get("draft"), "user_message": payload.content}
         try:
+            if payload.mode:
+                from ..knowledge import ReadOnlyKnowledge
+                knowledge = ReadOnlyKnowledge()
+                prompt["mode"] = payload.mode
+                prompt["snapshot"] = knowledge.snapshot
+                prompt["task"] = (
+                    "回答行影集相关问题，仅返回 schema JSON。feedback 模式讨论需求并整理草稿，bug 模式结合代码分析原因、给出修复建议并整理 bug 草稿；"
+                    "consultation 模式解答使用问题，draft 必须为 null。先用只读工具检索：使用咨询优先检索官网文档，bug 或新需求优先检索源码，必要时再读具体片段。"
+                    "最多六次工具查询、最多三轮模型请求，尽量一次并行搜索，最后一轮必须给出结论。仅输出建议，不得声称执行了修复。"
+                    "代码固定为 snapshot 指定版本，官网文档可能比代码更新。缺少快照、检索无结果或存在版本差异时如实说明，不编造源码依据。"
+                    "reply 先回答用户，再最多追问两个问题。根据用户已经提供的信息整理草稿，缺失信息不要编造。用户确认后才会提交。整体不超过1000字。"
+                )
             targets = resolve_model_targets(db, "requirement_triage")
             if not targets:
                 raise RuntimeError("No analysis model configured")
             with chat_budget(subject, user is None):
-                text = dsh.run_harness(targets[0], json.dumps(prompt, ensure_ascii=False))
+                text = dsh.run_with_fallback(targets, json.dumps(prompt, ensure_ascii=False), **({"knowledge": knowledge} if knowledge is not None else {}))
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             result = IntakeReply.model_validate_json(text)
+            if payload.mode == "consultation":
+                result.draft = None
         except HTTPException:
             raise
         except Exception:
-            raise HTTPException(503, "AI 暂时未能整理需求，请稍后重试或使用表单提交")
+            raise HTTPException(503, "AI 暂时无法完成分析，请稍后重试或使用表单提交")
     result.reply = re.sub(r"deepseek(?:[-\s]+harness)?|\bdsh\b", "行影集 AI 助手", result.reply, flags=re.I)
     data = result.model_dump()
     history = (previous["history"] + [{"user": payload.content[:600], "assistant": result.reply[:800]}])[-3:]
@@ -107,4 +129,6 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
     state = jwt.encode({"sub": subject, "key": digest(x_intake_key), "aud": "feedback-intake",
                         "exp": utcnow() + timedelta(days=1), "history": history, "count": count,
                         "draft": data["draft"], "topic_established": bool(previous.get("topic_established") or allowed)}, settings.jwt_secret, algorithm="HS256")
-    return ok({**data, "state": state, "quota": quota_view(db, subject, user is None, count)})
+    return ok({**data, "state": state, "quota": quota_view(db, subject, user is None, count),
+               "sources": list(knowledge.sources.values()) if allowed and knowledge else [],
+               "snapshot": knowledge.snapshot if allowed and knowledge else None})

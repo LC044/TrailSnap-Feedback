@@ -14,6 +14,7 @@ from .config import settings
 from .quota_policy import read_policy
 
 model_principal = ContextVar("model_principal", default=None)
+model_call_budget = ContextVar("model_call_budget", default=None)
 
 
 @contextmanager

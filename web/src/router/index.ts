@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import { APP_BASE_PATH } from '../runtimeBase'
 
-export type AppTab = 'public' | 'dashboard' | 'submit' | 'mine' | 'admin' | 'versions' | 'usage' | 'integrations' | 'ai-settings' | 'users' | 'notifications'
+export type AppTab = 'public' | 'dashboard' | 'submit' | 'assistant' | 'mine' | 'admin' | 'versions' | 'usage' | 'integrations' | 'ai-settings' | 'users' | 'notifications'
 
 // App.vue still owns the shell while pages are migrated one at a time. Route
 // records are authoritative for URLs and browser history during that migration.
@@ -10,6 +10,7 @@ const tabRoutes: Array<[AppTab, string]> = [
   ['public', '/'],
   ['dashboard', '/dashboard'],
   ['submit', '/requirements/new'],
+  ['assistant', '/assistant'],
   ['mine', '/requirements/mine'],
   ['admin', '/admin/requirements'],
   ['versions', '/versions'],

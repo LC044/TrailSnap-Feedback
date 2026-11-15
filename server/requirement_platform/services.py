@@ -240,7 +240,7 @@ def analyze_requirement(db: Session, requirement_id: str) -> TriageReport:
     if targets:
         payload = requirement_snapshot(requirement)
         errors = []
-        for target in targets:
+        for target in targets[:3]:
             try:
                 from .dsh import triage_with_harness
                 report = triage_with_harness(payload, duplicates, target)

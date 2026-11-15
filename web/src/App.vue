@@ -5,7 +5,7 @@
 
     <main class="main">
       <!-- ============ 需求详情页 ============ -->
-      <IntakePage v-if="route.name === 'requirement-intake'" />
+      <IntakePage v-if="route.name === 'requirement-intake' || tab === 'assistant'" />
       <ConversationPage v-else-if="route.name === 'requirement-conversation'" :key="String(route.params.number)" :number="Number(route.params.number)" />
       <NotificationConfirmPage v-else-if="route.name === 'notification-confirm'" />
       <NotificationAdminPage v-else-if="tab === 'notifications' && isManager" />
@@ -403,6 +403,7 @@ const candidateSelection = reactive<Record<string, string>>({})
 const visibleTabs = computed(() => [
   { key: 'public' as Tab, label: '公开需求', icon: Document },
   { key: 'submit' as Tab, label: '提交需求', icon: EditPen },
+  { key: 'assistant' as Tab, label: 'AI 助手', icon: MagicStick },
   { key: 'mine' as Tab, label: user.value ? '我的需求与本机记录' : '本机提交记录', icon: Collection },
   { key: 'versions' as Tab, label: '版本计划', icon: Flag },
   { key: 'usage' as Tab, label: 'Token 用量', icon: TrendCharts },

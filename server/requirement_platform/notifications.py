@@ -96,7 +96,7 @@ def claim_email(db):
         return None
     token = secrets.token_hex(24)
     claimed = db.query(EmailDelivery).filter(EmailDelivery.id == candidate.id, eligible).update({
-        "status": "sending", "lease_token": token, "lease_expires_at": now + timedelta(minutes=2), "attempts": EmailDelivery.attempts + 1,
+        "status": "sending", "lease_token": token, "lease_expires_at": now + timedelta(minutes=5), "attempts": EmailDelivery.attempts + 1,
     }, synchronize_session=False)
     db.commit()
     return (candidate.id, token) if claimed else None
@@ -112,31 +112,46 @@ def send_email(db, delivery_id, lease_token):
         db.commit()
         return
     try:
-        if not settings.smtp_host or not settings.smtp_from:
+        from .mail_settings import sender_pool, sender_password
+        accounts = sender_pool(db, settings)
+        if not accounts:
             raise RuntimeError("SMTP 尚未配置")
         from .ai_guard import consume, digest
         consume(db, f"mail-send:{digest(subscription.email)}", 20, 86400)
         consume(db, "mail-send-global", 1000, 86400)
         db.commit()
-        message = EmailMessage()
-        message["From"], message["To"], message["Subject"] = settings.smtp_from, subscription.email, row.subject
-        # Stable id makes SMTP retries identifiable; ambiguous SMTP outcomes can still duplicate mail.
-        message["Message-ID"] = f"<{row.id}@{settings.smtp_from.rsplit('@', 1)[-1]}>"
-        message.set_content(row.body)
-        if settings.smtp_tls not in {"ssl", "starttls", "none"}:
-            raise RuntimeError("RP_SMTP_TLS 必须为 ssl、starttls 或 none")
-        cls = smtplib.SMTP_SSL if settings.smtp_tls == "ssl" else smtplib.SMTP
-        with cls(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
-            if settings.smtp_tls == "starttls":
-                smtp.starttls(context=ssl.create_default_context())
-            if settings.smtp_username:
-                smtp.login(settings.smtp_username, settings.smtp_password)
-            smtp.send_message(message)
+        delivered = False
+        for account in accounts:
+            # Each account is tried at most once per delivery attempt. Failed
+            # attempts also consume its daily budget to avoid retry storms.
+            try:
+                with db.begin_nested():
+                    consume(db, "smtp-account:" + account["id"], account["daily_limit"], 86400)
+                db.commit()
+                message = EmailMessage()
+                message["From"], message["To"], message["Subject"] = account["sender"], subscription.email, row.subject
+                message["Message-ID"] = f"<{row.id}@{settings.web_url.split('://')[-1].split('/')[0].split(':')[0]}>"
+                message.set_content(row.body)
+                if account["tls"] not in {"ssl", "starttls", "none"}:
+                    raise RuntimeError("Invalid TLS mode")
+                cls = smtplib.SMTP_SSL if account["tls"] == "ssl" else smtplib.SMTP
+                with cls(account["host"], account["port"], timeout=5) as smtp:
+                    if account["tls"] == "starttls":
+                        smtp.starttls(context=ssl.create_default_context())
+                    if account["username"]:
+                        smtp.login(account["username"], sender_password(account))
+                    smtp.send_message(message)
+                delivered = True
+                break
+            except Exception:
+                db.rollback()
+        if not delivered:
+            raise RuntimeError("所有发件账号均不可用或已达限额")
         updates = {"status": "sent", "sent_at": utcnow(), "last_error": None}
     except Exception:
         # Do not put SMTP credentials, recipients, or provider response bodies in public logs.
         updates = {"status": "failed" if row.attempts >= settings.max_job_attempts else "queued",
-                   "last_error": "邮件发送失败，请检查 SMTP 配置或投递日志", "available_at": utcnow() + timedelta(seconds=min(3600, 30 * 2 ** row.attempts))}
+                   "last_error": "所有发件账号发送失败或已达限额，请检查邮件设置", "available_at": utcnow() + timedelta(seconds=min(3600, 30 * 2 ** row.attempts))}
     updates.update(lease_expires_at=None, lease_token=None)
     db.query(EmailDelivery).filter_by(id=delivery_id, lease_token=lease_token).update(updates, synchronize_session=False)
     db.commit()

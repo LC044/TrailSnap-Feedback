@@ -12,6 +12,7 @@
     </el-alert>
 
     <AIQuotaSettings />
+    <AIUsageStatistics />
     <el-alert type="info" :closable="false" title="模型接口配置">
       请配置兼容 Messages 协议的接口，测试连接会实际调用模型。
     </el-alert>
@@ -79,7 +80,7 @@
 
     <article class="panel settings-block">
       <h2>任务模型路由</h2>
-      <p class="route-help">列表中的第一个模型是主模型，其余模型按顺序作为失败兜底。禁用路由会明确关闭该任务的 AI。</p>
+      <p class="route-help">第一个为主模型，故障时按顺序切换模型或 API；单次最多尝试前三个模型，共享调用与 Token 预算。达到平台限额时停止切换。</p>
       <div v-for="route in settings?.routes || []" :key="route.task_type" class="route-row">
         <div><strong>{{ route.label }}</strong><p>{{ route.description }}<span v-if="route.source === 'environment'"> · 当前使用环境变量</span></p></div>
         <el-switch v-model="route.enabled" />
@@ -98,6 +99,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import AIQuotaSettings from './components/AIQuotaSettings.vue'
+import AIUsageStatistics from './components/AIUsageStatistics.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type AIConnection, type AIModel, type AISettings, type AITaskRoute } from './api'
 

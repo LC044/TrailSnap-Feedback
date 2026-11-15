@@ -19,6 +19,46 @@ class AIQuotaPolicy(Base):
     config: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
+class MailSettings(Base):
+    __tablename__ = "mail_settings"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    accounts: Mapped[list] = mapped_column(JSON, default=list)
+    cursor: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class ModelRequestUsage(Base):
+    __tablename__ = "model_request_usage"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    connection_id: Mapped[str] = mapped_column(String(36), index=True)
+    connection_name: Mapped[str] = mapped_column(String(160))
+    model_id: Mapped[str] = mapped_column(String(36), index=True)
+    model_name: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    reserved_tokens: Mapped[int] = mapped_column(Integer)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class KnowledgeSnapshot(Base):
+    __tablename__ = "knowledge_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    tag: Mapped[str] = mapped_column(String(100))
+    revision: Mapped[str] = mapped_column(String(40))
+    refreshed_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow)
+    docs_count: Mapped[int] = mapped_column(Integer, default=0)
+    code_count: Mapped[int] = mapped_column(Integer, default=0)
+    warning: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+
+class KnowledgeFile(Base):
+    __tablename__ = "knowledge_files"
+    path: Mapped[str] = mapped_column(String(500), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16), index=True)
+    url: Mapped[str] = mapped_column(String(1000))
+    content: Mapped[str] = mapped_column(Text)
+
+
 class EmailSubscription(Base):
     __tablename__ = "email_subscriptions"
     __table_args__ = (UniqueConstraint("requirement_id", "email"),)

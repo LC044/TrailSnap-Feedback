@@ -7,16 +7,16 @@
       <div class="policy-grid">
         <fieldset v-for="group in groups" :key="group.key"><legend>{{ group.label }}</legend>
           <el-form-item v-if="policy.mode !== 'tokens'" label="每天最多对话次数"><el-input-number v-model="policy[group.count]" :min="0" :max="100000" controls-position="right" /></el-form-item>
-          <el-form-item v-if="policy.mode !== 'count'" label="每天 Token 预算"><el-input-number v-model="policy[group.tokens]" :min="0" :max="100000000" :step="10000" controls-position="right" /></el-form-item>
+          <el-form-item v-if="policy.mode !== 'count'" label="每天 Token 预算（M）"><el-input-number :model-value="policy[group.tokens] / 1000000" @update:model-value="setTokens(group.tokens, $event)" :min="0" :max="100" :step="0.001" :precision="3" controls-position="right" /></el-form-item>
         </fieldset>
         <fieldset><legend>全站保护（始终生效）</legend>
           <el-form-item label="全站每天最多次数"><el-input-number v-model="policy.global_daily" :min="0" :max="1000000" /></el-form-item>
-          <el-form-item label="全站每天 Token 预算"><el-input-number v-model="policy.global_tokens" :min="0" :max="1000000000" :step="10000" /></el-form-item>
+          <el-form-item label="全站每天 Token 预算（M）"><el-input-number :model-value="policy.global_tokens / 1000000" @update:model-value="setTokens('global_tokens', $event)" :min="0" :max="1000" :step="0.001" :precision="3" /></el-form-item>
           <el-form-item label="每个 IP 每天最多次数"><el-input-number v-model="policy.ip_daily" :min="0" :max="1000000" /></el-form-item>
           <el-form-item label="最短发送间隔（秒）"><el-input-number v-model="policy.interval_seconds" :min="1" :max="3600" /></el-form-item>
         </fieldset>
       </div>
-      <p class="policy-note">0 表示禁止使用。Token 按完整请求与最大输出保守预留，失败不退还；修改额度保留已用记录。</p>
+      <p class="policy-note">1 M = 1,000,000 Token，0 表示禁止使用。额度按请求与最大输出保守预留，失败不退还；修改额度保留已用记录。</p>
       <el-button type="primary" native-type="submit" :loading="saving">保存限额</el-button>
     </el-form>
   </article>
@@ -29,6 +29,7 @@ type Policy = { mode:'count'|'tokens'|'both'; anonymous_daily:number; user_daily
 const policy = ref<Policy>(), loading = ref(false), saving = ref(false), error = ref('')
 const groups = [{ key:'anonymous', label:'匿名用户', count:'anonymous_daily', tokens:'anonymous_tokens' },{ key:'user', label:'登录用户（含管理员）', count:'user_daily', tokens:'user_tokens' }] as const
 const reason = (e:any) => e?.response?.data?.msg || '无法保存，请稍后重试'
+function setTokens(key:'anonymous_tokens'|'user_tokens'|'global_tokens', value:number|undefined) { if(policy.value && value !== undefined) policy.value[key] = Math.round(value * 1000000) }
 async function load() { loading.value=true; try { policy.value=await call<Policy>('GET','/admin/ai-quota-policy'); error.value='' } catch(e){error.value=reason(e)} finally{loading.value=false} }
 async function save(){saving.value=true; try{policy.value=await call<Policy>('PUT','/admin/ai-quota-policy',policy.value);error.value='';ElMessage.success('限额已保存')}catch(e){error.value=reason(e)}finally{saving.value=false}}
 onMounted(load)

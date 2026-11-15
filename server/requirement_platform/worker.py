@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 from datetime import datetime, timedelta, timezone
 
 from .config import settings
@@ -74,7 +75,19 @@ def run_job(job_id: str) -> None:
 def main() -> None:
     init_db()
     once = os.getenv("RP_WORKER_ONCE", "").lower() in {"1", "true", "yes"}
+    knowledge_thread = None
+    next_knowledge_check = 0
     while True:
+        if not once and time.monotonic() >= next_knowledge_check and (knowledge_thread is None or not knowledge_thread.is_alive()):
+            from .knowledge import refresh_knowledge
+            def refresh():
+                try:
+                    refresh_knowledge()
+                except Exception:
+                    pass  # Retain previous complete snapshot; retry is leased/backed off.
+            knowledge_thread = threading.Thread(target=refresh, daemon=True)
+            knowledge_thread.start()
+            next_knowledge_check = time.monotonic() + 60
         db = SessionLocal()
         try:
             db.query(AIQuota).filter(AIQuota.expires_at < datetime.now(timezone.utc) - timedelta(days=2)).delete(synchronize_session=False)
