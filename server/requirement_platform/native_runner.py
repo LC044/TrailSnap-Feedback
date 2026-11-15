@@ -1,5 +1,6 @@
 """Isolated Docker supervisor; each SDK process has a fresh unprivileged UID."""
 import json
+import logging
 import os
 import re
 import secrets
@@ -8,11 +9,13 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
 slot = threading.BoundedSemaphore(1)
+logger = logging.getLogger(__name__)
 
 
 def execute(payload):
@@ -44,9 +47,13 @@ def execute(payload):
                                    user=uid, group=uid, extra_groups=[])
         try:
             output, _ = process.communicate(json.dumps(payload).encode() + b"\n", timeout=min(105, payload.get("timeout", 100) + 3))
-            if len(output) > 128000 or process.returncode:
+            if len(output) > 128000:
                 raise RuntimeError("Runner failed")
             value = json.loads(output)
+            if process.returncode:
+                code = value.get("error_type", "RuntimeError")
+                logger.warning("ai_runtime_failed error_type=%s", code if code in {"RuntimeError", "TimeoutError", "TransportClosedError", "TransportTimeoutError", "ConnectionError"} else "RuntimeError")
+                raise RuntimeError("Runner failed")
             if not isinstance(value.get("reply"), str):
                 raise RuntimeError("Runner failed")
             return value
@@ -90,6 +97,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(503)
             return
         try:
+            started = time.monotonic()
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 65536:
                 raise ValueError("Payload too large")
@@ -100,8 +108,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
-        except Exception:
-            self.send_error(503, "Analysis temporarily unavailable")
+        except Exception as error:
+            logger.warning("ai_runner_failed error_type=%s elapsed_ms=%d", type(error).__name__, int((time.monotonic()-started)*1000))
+            try:
+                self.send_error(503, "Analysis temporarily unavailable")
+            except (BrokenPipeError, ConnectionResetError):
+                pass
         finally:
             slot.release()
 

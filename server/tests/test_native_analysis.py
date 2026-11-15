@@ -48,6 +48,8 @@ def test_platform_uses_isolated_runner_without_provider_key(indexed, monkeypatch
     assert dsh.run_harness(target, "{}") == "分析完成"
     body = calls[0][1]["json"]
     assert body["reasoning_effort"] == expected
+    assert body["timeout"] == 100
+    assert body["request_timeout"] == 45
     assert body["gateway_token"] == "one-run-token" and body["generation"]
     assert "REAL-PROVIDER-SECRET" not in json.dumps(calls)
 
@@ -71,11 +73,12 @@ def test_native_runtime_preserves_reasoning_and_clears_inherited_secrets(tmp_pat
     monkeypatch.setattr(deepseek_harness, "DeepSeekHarness", Harness)
     monkeypatch.setenv("RP_SMTP_PASSWORD", "must-not-inherit")
     payload = dict(system=dsh.SYSTEM_PROMPT, model="test", gateway_url="http://api:12345", gateway_token="ephemeral",
-                   reasoning_effort=effort, max_tokens=1024, prompt="{}", timeout=5)
+                   reasoning_effort=effort, max_tokens=1024, prompt="{}", timeout=100, request_timeout=45)
     assert native_runtime.run(payload, tmp_path) == "完成"
     assert calls[0]["reasoning_effort"] == expected
     assert calls[0]["env"]["RP_SMTP_PASSWORD"] == ""
     assert calls[0]["api_key"] == "ephemeral"
+    assert calls[0]["request_timeout_seconds"] == 45
 
 
 def test_remote_gateway_auth_precedes_budget_and_reports_native_completion(indexed, monkeypatch):
@@ -128,6 +131,38 @@ def test_runner_cannot_use_public_platform_apis(monkeypatch):
         assert runner.post("/api/requirements", json={}).status_code == 403
     with TestClient(app, client=("10.0.0.6", 12345)) as user:
         assert user.get("/api/health").status_code == 200
+
+
+def test_upstream_timeout_and_failure_logs_do_not_expose_diagnostics(indexed, monkeypatch, caplog):
+    from requirement_platform import model_gateway
+    monkeypatch.setattr(model_gateway, "reserve_model", lambda *_: None)
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"]))
+            self.send_response(503); self.end_headers()
+            self.wfile.write(b'private-upstream-prompt-and-key')
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    opener = model_gateway.build_opener
+    timeouts = []
+    class Opener:
+        def open(self, request, *, timeout):
+            timeouts.append(timeout)
+            return opener(model_gateway.NoRedirect).open(request, timeout=timeout)
+    monkeypatch.setattr(model_gateway, "build_opener", lambda *_: Opener())
+    target = SimpleNamespace(model_name="test", api_base=f"http://127.0.0.1:{server.server_port}", api_key="private-provider-key", timeout_seconds=45)
+    try:
+        with model_gateway.bounded_endpoint(target) as url:
+            response = httpx.post(url + "/v1/messages", json={"messages": []}, trust_env=False)
+            assert response.status_code == 503
+            assert "private" not in response.text
+        assert timeouts == [45]  # No hidden ten-second cap before first token.
+        assert "upstream_status=503" in caplog.text
+        assert "private-provider-key" not in caplog.text
+        assert "private-upstream-prompt-and-key" not in caplog.text
+    finally:
+        server.shutdown(); server.server_close()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Official native SDK is verified on Linux")

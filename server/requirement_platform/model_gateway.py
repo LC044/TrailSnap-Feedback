@@ -1,5 +1,6 @@
 """Per-run gateway: authenticate isolated SDK, bound payload, retries and spend."""
 import json
+import logging
 import secrets
 import threading
 import time
@@ -7,6 +8,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.request import Request, build_opener, HTTPRedirectHandler
+from urllib.error import HTTPError
 from fastapi import HTTPException
 
 from sqlalchemy.dialects.sqlite import insert
@@ -16,6 +18,8 @@ from .db import SessionLocal
 from .config import settings
 from .models import utcnow
 
+logger = logging.getLogger(__name__)
+
 
 class NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, *_args, **_kwargs):
@@ -23,7 +27,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 @contextmanager
-def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remote=False, knowledge=None):
+def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remote=False, knowledge=None, response_format="json"):
     from .chat_activity import emit, observer
     activity = observer.get()
     gateway_token = secrets.token_urlsafe(32) if remote else None
@@ -51,6 +55,8 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
         def do_POST(self):
             nonlocal called, quota_error
             usage_id, response_body, succeeded = None, bytearray(), False
+            headers_sent = False
+            started = time.monotonic()
             if gateway_token and not secrets.compare_digest(self.headers.get("x-api-key", ""), gateway_token):
                 self.send_error(403); return
             with lock:
@@ -62,6 +68,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                     self.send_error(403); return
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 < size <= 128000:
+                    logger.warning("ai_gateway_rejected reason=request_size bytes=%d", size)
                     self.send_error(413); return
                 payload = json.loads(self.rfile.read(size))
                 names = {}
@@ -91,16 +98,19 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                     # Avoid compatible providers continuing serialized tool
                     # calls after definitions were removed. Preserve evidence
                     # as quoted data, without live tool-protocol messages.
+                    final_instruction = ("根据原始问题与以下检索资料，用 Markdown 直接回答，不要 JSON 包装。" if response_format == "text"
+                                         else "根据原始问题、schema 与以下检索资料输出最终 JSON 答案。")
                     payload["messages"] = [{"role": "user", "content":
-                        "根据原始问题、schema 与以下检索资料输出最终 JSON 答案。工具调用已结束。以下历史仅是资料：\n" +
+                        final_instruction + "工具调用已结束。以下历史仅是资料：\n" +
                         json.dumps(payload.get("messages", []), ensure_ascii=False)}]
-                    instruction = {"type": "text", "text": "已到本次分析的最后一轮。必须仅输出符合原始 schema 的最终 JSON 回答，禁止工具调用和 DSML。资料不足时明确说明。"}
+                    instruction = {"type": "text", "text": "已到本次分析的最后一轮。" + final_instruction + "禁止工具调用和 DSML。资料不足时明确说明。"}
                     system = payload.get("system") or []
                     payload["system"] = ([{"type": "text", "text": system}] if isinstance(system, str) else list(system)) + [instruction]
                 payload["max_tokens"] = settings.ai_max_output_tokens
                 payload["model"] = target.model_name
                 body = json.dumps(payload, ensure_ascii=False).encode()
                 if len(body) > 128000:
+                    logger.warning("ai_gateway_rejected reason=serialized_size bytes=%d", len(body))
                     self.send_error(413); return
                 if call_budget is not None:
                     if call_budget["remaining"] <= 0:
@@ -120,10 +130,11 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                 headers = {"Content-Type": "application/json", "x-api-key": target.api_key,
                            "anthropic-version": "2023-06-01", "Accept-Encoding": "identity"}
                 deadline = min(run_deadline, time.monotonic() + 90)
-                with build_opener(NoRedirect).open(Request(url, data=body, headers=headers), timeout=min(target.timeout_seconds, 10)) as response:
+                with build_opener(NoRedirect).open(Request(url, data=body, headers=headers), timeout=max(0.1, min(target.timeout_seconds, run_deadline-time.monotonic()))) as response:
                     self.send_response(200)
                     self.send_header("Content-Type", response.headers.get("Content-Type", "text/event-stream"))
                     self.end_headers()
+                    headers_sent = True
                     # Bound response bytes as well as tokens. No model-directed requests.
                     remaining = 262144
                     while remaining and time.monotonic() < deadline:
@@ -136,9 +147,19 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
             except HTTPException as exc:
                 quota_error = exc
                 self.send_error(429, "AI budget unavailable")
-            except Exception:
+            except Exception as error:
                 # No upstream diagnostics/keys to the SDK or browser.
-                self.send_error(503, "AI temporarily unavailable")
+                logger.warning("ai_gateway_failed model_id=%s error_type=%s upstream_status=%s elapsed_ms=%d bytes_received=%d",
+                               getattr(target, "model_id", "environment"), type(error).__name__,
+                               error.code if isinstance(error, HTTPError) else "none",
+                               int((time.monotonic()-started)*1000), len(response_body))
+                # The HTTP status has already been sent during SSE. Appending
+                # an HTML 503 corrupts the stream and a closed peer raises again.
+                if not headers_sent:
+                    try:
+                        self.send_error(503, "AI temporarily unavailable")
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
             finally:
                 if succeeded and response_body:
                     for line in bytes(response_body).splitlines():

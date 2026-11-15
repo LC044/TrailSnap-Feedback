@@ -1,5 +1,6 @@
 """Bounded pre-submission discussion; model output never executes write tools."""
 import json
+import logging
 import re
 import queue
 import threading
@@ -9,6 +10,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from starlette.responses import StreamingResponse
 
@@ -23,6 +25,7 @@ from ..security import optional_user
 
 router = APIRouter(prefix="/api/intake", tags=["intake"])
 _stream_slots = threading.BoundedSemaphore(4)
+logger = logging.getLogger(__name__)
 
 
 class IntakeInput(BaseModel):
@@ -120,20 +123,40 @@ def complete_intake(payload, previous, subject, key, anonymous, db):
                     "代码固定为 snapshot 指定版本，官网文档可能比代码更新。缺少快照、检索无结果或存在版本差异时如实说明，不编造源码依据。"
                     "reply 先回答用户，再最多追问两个问题。根据用户已经提供的信息整理草稿，缺失信息不要编造。用户确认后才会提交。整体不超过1000字。"
                 )
+                if payload.mode == "consultation":
+                    prompt.pop("schema", None)
+                    prompt.pop("previous_draft", None)
+                    prompt["task"] = (
+                        "结合对话历史回答行影集使用问题，可自主查阅官网文档和发布版源码。"
+                        "直接返回 Markdown 答案，不要 JSON 包装，不生成需求单。先回答，再至多追问两个必要问题。"
+                        "区分源码依据与推测；代码固定为 snapshot 版本，官网文档可能更新。"
+                        "不得声称已修改线上代码、提交需求或发送邮件。整体不超过1000字。"
+                    )
             targets = resolve_model_targets(db, "requirement_triage")
             if not targets:
                 raise RuntimeError("No analysis model configured")
             with chat_budget(subject, anonymous):
-                text = dsh.run_with_fallback(targets, json.dumps(prompt, ensure_ascii=False), **({"knowledge": knowledge} if knowledge is not None else {}))
-            if text.startswith("```"):
+                options = {"knowledge": knowledge} if knowledge is not None else {}
+                if payload.mode == "consultation":
+                    options["response_format"] = "text"
+                text = dsh.run_with_fallback(targets, json.dumps(prompt, ensure_ascii=False), **options)
+            if payload.mode != "consultation" and text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
             emit("composing")
-            result = IntakeReply.model_validate_json(text)
             if payload.mode == "consultation":
-                result.draft = None
+                # Consultation needs only display text. Requiring a JSON wrapper
+                # rejects otherwise complete answers containing code/Markdown.
+                result = IntakeReply(reply=text.strip(), draft=None)
+            else:
+                result = IntakeReply.model_validate_json(text)
         except HTTPException:
             raise
-        except Exception:
+        except ValidationError as error:
+            # Pydantic exception strings contain the original model response.
+            logger.warning("ai_intake_invalid_result errors=%s", [e["type"] for e in error.errors(include_input=False, include_context=False)])
+            raise HTTPException(503, "AI 暂时无法完成分析，请稍后重试或使用表单提交")
+        except Exception as error:
+            logger.warning("ai_intake_failed error_type=%s", type(error).__name__)
             raise HTTPException(503, "AI 暂时无法完成分析，请稍后重试或使用表单提交")
     result.reply = re.sub(r"deepseek(?:[-\s]+harness)?|\bdsh\b", "行影集 AI 助手", result.reply, flags=re.I)
     data = result.model_dump()

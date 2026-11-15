@@ -1,5 +1,6 @@
 """Platform admission/model gateway; official SDK executes in the isolated runner."""
 import json
+import logging
 import time
 
 import httpx
@@ -7,6 +8,8 @@ import httpx
 from .config import settings
 from .model_gateway import bounded_endpoint
 from .native_runtime import NATIVE_TOOLS
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """你是行影集 AI 助手，只处理行影集的使用、需求、缺陷和实现方案。
 结合对话历史理解用户的简短回答；无关请求引导回行影集。
@@ -29,7 +32,8 @@ def run_with_fallback(targets, prompt, **kwargs):
                 return run_harness(target, prompt, **kwargs)
             except HTTPException:
                 raise  # Local budget/rate/authorization failures never fail over.
-            except Exception:
+            except Exception as error:
+                logger.warning("ai_attempt_failed model_id=%s error_type=%s", getattr(target, "model_id", "environment"), type(error).__name__)
                 from .chat_activity import emit
                 emit("retrying")
                 continue
@@ -38,7 +42,7 @@ def run_with_fallback(targets, prompt, **kwargs):
         model_call_budget.reset(token)
 
 
-def run_harness(target, prompt, *, session_id=None, knowledge=None):
+def run_harness(target, prompt, *, session_id=None, knowledge=None, response_format="json"):
     if len(prompt.encode("utf-8")) > 24000:
         raise RuntimeError("分析资料过长，请精简后重试")
     if not settings.dsh_enabled or not settings.dsh_runner_url or not settings.dsh_runner_token:
@@ -50,9 +54,12 @@ def run_harness(target, prompt, *, session_id=None, knowledge=None):
     from .chat_activity import emit
     budget = model_call_budget.get()
     timeout = min(100, max(1, budget["deadline"] - time.monotonic())) if budget else 100
-    with bounded_endpoint(target, allowed_tools=NATIVE_TOOLS, max_requests=12, remote=True, knowledge=knowledge) as gateway:
+    with bounded_endpoint(target, allowed_tools=NATIVE_TOOLS, max_requests=12, remote=True, knowledge=knowledge, response_format=response_format) as gateway:
         body = {"model": target.model_name, "reasoning_effort": target.reasoning_effort,
-                "max_tokens": settings.ai_max_output_tokens, "timeout": min(timeout, target.timeout_seconds),
+                # A connection timeout applies to each model request, not the
+                # entire sequence of source searches and model turns.
+                "max_tokens": settings.ai_max_output_tokens, "timeout": timeout,
+                "request_timeout": target.timeout_seconds,
                 "gateway_url": gateway["url"], "gateway_token": gateway["token"],
                 "generation": knowledge.generation, "system": SYSTEM_PROMPT,
                 "prompt": prompt + "\n资料状态：" + json.dumps(knowledge.snapshot, ensure_ascii=False)}

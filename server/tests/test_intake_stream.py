@@ -64,3 +64,29 @@ def test_stream_refusal_is_local_and_failures_are_sanitized(monkeypatch):
         assert frames(response)[-1][0] == "error"
         assert frames(response)[-1][1]["code"] == 503
         assert "private upstream" not in response.text
+
+
+def test_consultation_displays_markdown_without_json_wrapper(monkeypatch):
+    answer = '桌面版 GPU 排查：\n```python\nprint("CUDA")\n```\nWindows 路径：C:\\Users\\example'
+    def run(_target, prompt, **options):
+        assert options["response_format"] == "text"
+        assert "schema" not in json.loads(prompt)
+        return answer
+    monkeypatch.setattr(intake, "resolve_model_targets", lambda *_: [object()])
+    monkeypatch.setattr(dsh, "run_harness", run)
+    with TestClient(app) as client:
+        events = frames(client.post("/api/intake/messages", headers=headers(), json={"content": "行影集桌面版GPU使用率为0", "mode": "consultation"}))
+        assert events[-1][0] == "result"
+        assert events[-1][1]["data"]["reply"] == answer
+        assert events[-1][1]["data"]["draft"] is None
+
+
+def test_invalid_requirement_draft_is_rejected_without_logging_content(monkeypatch, caplog):
+    monkeypatch.setattr(intake, "resolve_model_targets", lambda *_: [object()])
+    monkeypatch.setattr(dsh, "run_harness", lambda *_a, **_k: '{"reply":"secret-private-conversation", "draft": {"unsafe": "private-key"}}')
+    with TestClient(app) as client:
+        events = frames(client.post("/api/intake/messages", headers=headers(), json={"content": "行影集导出问题", "mode": "feedback"}))
+        assert events[-1][0] == "error"
+    assert "ai_intake_invalid_result" in caplog.text
+    assert "secret-private-conversation" not in caplog.text
+    assert "private-key" not in caplog.text

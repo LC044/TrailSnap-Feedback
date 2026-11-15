@@ -52,14 +52,24 @@ def run(payload, workspace):
                          patches=(str(patch),), model=payload["model"], api_key=payload["gateway_token"],
                          base_url=payload["gateway_url"], max_tokens=payload["max_tokens"],
                          reasoning_effort=EFFORTS[payload["reasoning_effort"]],
-                         request_timeout_seconds=payload.get("timeout", 100), env=environment) as harness:
-        timer = threading.Timer(payload.get("timeout", 100), harness.close)
+                         request_timeout_seconds=payload.get("request_timeout", 45), env=environment) as harness:
+        expired = threading.Event()
+        def expire():
+            expired.set()
+            harness.close()
+        timer = threading.Timer(payload.get("timeout", 100), expire)
         timer.daemon = True
         timer.start()
         try:
             result = harness.run("请处理以下 JSON 资料：\n" + payload["prompt"])
+        except Exception:
+            if expired.is_set():
+                raise TimeoutError("analysis_deadline") from None
+            raise
         finally:
             timer.cancel()
+    if expired.is_set():
+        raise TimeoutError("analysis_deadline")
     if result.finish_reason in {"error", "cancelled", "max_tokens", "max-tokens"} or not result.final_response.strip():
         raise RuntimeError("Analysis incomplete")
     return result.final_response.strip()
@@ -73,6 +83,7 @@ if __name__ == "__main__":
         resource.setrlimit(resource.RLIMIT_FSIZE, (32 * 1024 * 1024, 32 * 1024 * 1024))
         body = json.loads(sys.stdin.buffer.readline(65537))
         print(json.dumps({"reply": run(body, Path.cwd())}, ensure_ascii=False), flush=True)
-    except Exception:
-        print(json.dumps({"error": "AI 暂时无法完成分析"}), flush=True)
+    except Exception as error:
+        # Class only: SDK exception text can contain prompts, paths or keys.
+        print(json.dumps({"error_type": type(error).__name__}), flush=True)
         sys.exit(1)
