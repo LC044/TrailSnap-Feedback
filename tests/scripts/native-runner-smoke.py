@@ -73,6 +73,9 @@ def host():
     try:
         seed="import pathlib,json; r=pathlib.Path('/knowledge')/'"+GEN+"';(r/'source').mkdir(parents=True);(r/'docs').mkdir();(r/'source/provider.rs').write_text('CUDA CoreML CPU');(r/'manifest.json').write_text('{}')"
         run(['docker','run','--rm','--user','0','--entrypoint','/app/.venv/bin/python','-v',volume+':/knowledge',image,'-c',seed])
+        # Both mount destinations in the image must seed the same worker-owned
+        # volume, regardless of which Compose service starts first.
+        run(['docker','run','--rm','--user','10001','--entrypoint','/app/.venv/bin/python','-v',volume+':/app/public-knowledge',image,'-c',"from pathlib import Path; p=Path('/app/public-knowledge/worker-write-check'); p.write_text('ok'); p.unlink()"])
         args=['docker','run','-d','--name',runner,'--init','--user','0','--network',network,'--network-alias','runner','--read-only','--tmpfs','/tmp:size=268435456,mode=1777,exec','--cap-drop','ALL','--security-opt','no-new-privileges:true','--pids-limit','128','--memory','768m','--cpus','1','-v',volume+':/knowledge:ro','-e','RP_DSH_RUNNER_TOKEN='+TOKEN,'--entrypoint','/app/.venv/bin/python']
         for cap in ('SETUID','SETGID','CHOWN','DAC_OVERRIDE','FOWNER','KILL'):args+=['--cap-add',cap]
         run(args+[image,'-m','requirement_platform.native_runner'])
