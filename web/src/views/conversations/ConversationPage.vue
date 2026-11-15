@@ -15,7 +15,7 @@
       <article v-for="message in messages" :key="message.id" class="conversation-turn">
         <div class="user-message"><span>{{ message.mode === 'consultation' ? '维护者' : '你' }}</span><p>{{ message.content }}</p></div>
         <div class="assistant-message"><div class="assistant-avatar">{{ message.mode === 'consultation' ? '问' : '行' }}</div><div class="assistant-content">
-          <p v-if="message.response" class="message-text">{{ message.response }}</p>
+          <div v-if="message.response" class="message-text" v-html="renderConversationMarkdown(message.response)"></div>
           <p v-else-if="message.status === 'failed'" role="alert">{{ message.error }} <el-button link type="primary" @click="retry(message.id)">重试</el-button></p>
           <p v-else class="pending" role="status">{{ message.status === 'running' ? '正在分析…' : '已收到，等待分析…' }}</p>
         </div></div>
@@ -40,6 +40,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { collaboration, type Message, type Quota } from '../../api/collaboration'
 import { useAnonymousReceipts, newEditToken } from '../../stores/anonymousReceipts'
+import { renderConversationMarkdown } from '../../conversationMarkdown'
 
 const props = defineProps<{ number: number }>()
 const router = useRouter()
@@ -106,5 +107,16 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer) })
 .assistant-message { display:flex; gap:12px; }.assistant-avatar { width:36px; height:36px; flex-shrink:0; border-radius:12px; display:grid; place-items:center; background:var(--rp-primary); color:var(--rp-card); font-weight:700; }.assistant-content { min-width:0; flex:1; }.message-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.85; margin:0; }.pending { color:var(--rp-text-2); }
 .conversation-composer { position:sticky; bottom:12px; background:var(--rp-card); border:1px solid var(--rp-border); border-radius:20px; padding:14px; box-shadow:var(--rp-shadow); }.composer-options,.composer-actions { display:flex; justify-content:space-between; align-items:center; gap:12px; }.composer-options { margin-bottom:10px; color:var(--rp-text-2); font-size:13px; }.composer-actions { margin-top:10px; }.composer-actions small { color:var(--rp-text-3); }.composer-actions .el-button { min-height:44px; }
 .conversation-subscribe { color:var(--rp-text-2); padding:18px 6px; font-size:13px; }.conversation-subscribe summary { cursor:pointer; min-height:30px; }.conversation-subscribe form { display:flex; gap:8px; margin-top:12px; }
+.message-text { white-space:normal; }
+.message-text :deep(:first-child) { margin-top:0; }
+.message-text :deep(:last-child) { margin-bottom:0; }
+.message-text :deep(h1),.message-text :deep(h2),.message-text :deep(h3) { font-size:1.1em; line-height:1.5; margin:20px 0 10px; }
+.message-text :deep(ul),.message-text :deep(ol) { padding-left:24px; }
+.message-text :deep(a) { color:var(--rp-primary); }
+.message-text :deep(pre),.message-text :deep(table) { max-width:100%; overflow-x:auto; }
+.message-text :deep(pre) { background:var(--rp-primary-soft); padding:12px; border-radius:10px; }
+.message-text :deep(code) { font-size:.9em; overflow-wrap:anywhere; }
+.message-text :deep(table) { display:block; border-collapse:collapse; }
+.message-text :deep(th),.message-text :deep(td) { border:1px solid var(--rp-border); padding:6px 10px; }
 @media(max-width:600px) { .conversation-head h1{font-size:18px}.conversation-head { align-items:flex-start; }.conversation-timeline{max-height:52dvh}.composer-actions small{max-width:62%;line-height:1.5}.user-message{max-width:94%}.conversation-subscribe form{flex-wrap:wrap} }
 </style>
