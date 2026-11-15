@@ -199,7 +199,7 @@ def test_official_sdk_runs_with_no_tools_or_telemetry(tmp_path, monkeypatch):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
     monkeypatch.setattr(dsh, "settings", replace(dsh.settings, dsh_home=str(tmp_path), dsh_enabled=True))
-    target = SimpleNamespace(model_name="deepseek-chat", api_key="test-only", api_base=f"http://127.0.0.1:{server.server_port}/v1", timeout_seconds=15)
+    target = SimpleNamespace(model_name="deepseek-chat", api_key="test-only", api_base=f"http://127.0.0.1:{server.server_port}/v1", timeout_seconds=15, reasoning_effort="none")
     try:
         try:
             result = dsh.run_harness(target, json.dumps({"message": "测试对话"}))
@@ -209,7 +209,42 @@ def test_official_sdk_runs_with_no_tools_or_telemetry(tmp_path, monkeypatch):
         assert requests
         assert '只处理行影集' in json.dumps(requests[0], ensure_ascii=False)
         assert requests[0]['max_tokens'] <= 4096
+        assert requests[0]['thinking'] == {'type': 'disabled'}
         assert not requests[0].get("tools"), requests[0].get("tools")
         assert 'session_log' not in json.dumps(requests[0]).lower()
     finally:
         server.shutdown(); server.server_close()
+
+
+@pytest.mark.parametrize('effort,expected', [('none','off'), ('minimal','low'), ('medium','low'), ('high','high'), ('xhigh','max')])
+def test_harness_honors_configured_reasoning_budget(tmp_path, monkeypatch, effort, expected):
+    from contextlib import nullcontext
+    import deepseek_harness
+    calls = []
+    class Harness:
+        def __init__(self, **kwargs): calls.append(kwargs)
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def run(self, *_args, **_kwargs):
+            return SimpleNamespace(finish_reason='completed', final_response='需要提供行影集版本。')
+    monkeypatch.setattr(deepseek_harness, 'DeepSeekHarness', Harness)
+    monkeypatch.setattr(dsh, 'bounded_endpoint', lambda _: nullcontext('http://127.0.0.1:1'))
+    monkeypatch.setattr(dsh, 'settings', replace(dsh.settings, dsh_home=str(tmp_path)))
+    target = SimpleNamespace(model_name='deepseek-v4.1-flash', timeout_seconds=45, reasoning_effort=effort)
+    assert dsh.run_harness(target, '{}') == '需要提供行影集版本。'
+    assert calls[0]['reasoning_effort'] == expected
+    assert calls[0]['api_key'] == 'local-gateway'
+
+
+def test_triage_uses_compact_schema_with_valid_defaults(monkeypatch):
+    prompts = []
+    def run(_target, prompt):
+        prompts.append(json.loads(prompt))
+        return json.dumps({'requirement_revision': 1, 'problem_summary': '行影集导出失败', 'category': 'bug',
+                           'recommended_disposition': 'clarify', 'generated_at': '2026-11-15T00:00:00Z'})
+    monkeypatch.setattr(dsh, 'run_harness', run)
+    result = dsh.triage_with_harness({'content_revision': 1}, [], None)
+    assert result['blocking_questions'] == []
+    assert result['fallback_reason'] is None
+    assert 'value_assessment' not in prompts[0]['schema']['properties']
+    assert set(prompts[0]['schema']['required']) <= prompts[0]['schema']['properties'].keys()

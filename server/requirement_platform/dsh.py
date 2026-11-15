@@ -21,6 +21,10 @@ RESTRICTED_PATCH = "\n".join(f"- id: {name}\n  disabled: true" for name in (
     "session-log-deepseek", "plugin-package-inventory-deepseek",
 )) + "\n- id: llm-deepseek\n  config:\n    apiKeyEnv: DEEPSEEK_API_KEY\n    defaultContextWindow: 65536\n    streamIdleTimeoutMs: 45000\n"
 
+# Translate existing platform presets to the official adapter's supported levels.
+REASONING_EFFORTS = {"none": "off", "minimal": "low", "low": "low", "medium": "low",
+                     "high": "high", "xhigh": "max", "max": "max"}
+
 
 def run_harness(target, prompt, *, session_id=None):
     if len(prompt.encode("utf-8")) > 24000:
@@ -42,12 +46,13 @@ def run_harness(target, prompt, *, session_id=None):
             profile="sdk-minimal", cwd=str(workspace), dsh_home=str(home / "home"),
             patches=(str(patch),), model=target.model_name, api_key="local-gateway",
             base_url=endpoint, max_tokens=settings.ai_max_output_tokens,
+            reasoning_effort=REASONING_EFFORTS[target.reasoning_effort],
             request_timeout_seconds=min(target.timeout_seconds, 100),
             env={"DSH_SYSTEM_PROMPT": SYSTEM_PROMPT},
         ) as harness:
             # Prefix prevents untrusted slash text from selecting SDK commands.
             result = harness.run("请处理以下 JSON 资料：\n" + prompt, session_id=session_id)
-        if result.finish_reason in {"error", "cancelled", "max_tokens"} or not result.final_response.strip():
+        if result.finish_reason in {"error", "cancelled", "max_tokens", "max-tokens"} or not result.final_response.strip():
             raise RuntimeError("DSH 未完成本次分析")
         return result.final_response.strip()
 
@@ -55,7 +60,11 @@ def run_harness(target, prompt, *, session_id=None):
 def triage_with_harness(payload, duplicates, target):
     from .schemas import TriageReportV2
     schema = TriageReportV2.model_json_schema()
-    text = run_harness(target, json.dumps({"task": "仅返回满足 schema 的 JSON 分诊报告。requirement_revision 使用输入 content_revision。", "schema": schema, "requirement": payload, "duplicate_candidates": duplicates}, ensure_ascii=False))
+    # Optional fields have server defaults. A compact schema avoids spending the
+    # output budget restating empty arrays and detailed speculative assessments.
+    fields = set(schema["required"]) | {"blocking_questions", "nonblocking_questions", "affected_components", "acceptance_draft"}
+    schema["properties"] = {k: v for k, v in schema["properties"].items() if k in fields}
+    text = run_harness(target, json.dumps({"task": "仅返回满足 schema 的精简 JSON 分诊报告，不输出思考过程或 Markdown。requirement_revision 使用输入 content_revision。仅列出 schema 中的字段，问题最多两个，每项一句话，整体不超过 800 字。", "schema": schema, "requirement": payload, "duplicate_candidates": duplicates}, ensure_ascii=False))
     if text.startswith("```"):
         text = text.split("\n", 1)[1].rsplit("```", 1)[0]
     report = TriageReportV2.model_validate_json(text).model_dump(mode="json")
