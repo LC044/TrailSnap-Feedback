@@ -361,3 +361,9 @@ a { color: inherit; }
   .el-dialog { width: calc(100vw - 24px) !important; margin: 12px auto !important; }
   .el-dialog__body { padding: 14px 16px; max-height: calc(100vh - 150px); overflow-y: auto; }
 }
+
+/* Chat routes own the viewport; only the message timeline scrolls. */
+.app-shell.chat-shell { height:100dvh; min-height:0; overflow:hidden; background:var(--rp-card); }
+.chat-shell > .main { height:100%; min-height:0; max-width:none; padding:0; margin:0; }
+.chat-shell > .footer { display:none; }
+@media(max-width:860px) { .app-shell.chat-shell { padding-top:var(--rp-mobile-header-height); } }

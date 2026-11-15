@@ -1,27 +1,27 @@
 <template>
   <section class="intake-page">
-    <header><div><h1>行影集 AI 助手</h1><p>反馈想法、排查问题，或了解使用方法。</p></div><el-button @click="router.push({ name: 'submit' })">填写表单</el-button></header>
+    <header><div><h1>行影集 AI 助手</h1><p>反馈想法、排查问题，或了解使用方法。</p></div><div class="header-actions"><el-button v-if="draft" @click="showPreview = !showPreview">需求单 <span aria-hidden="true">↗</span></el-button><el-button @click="router.push({ name: 'submit' })">填写表单</el-button></div></header>
     <div class="mode-tabs" role="group" aria-label="讨论类型"><button v-for="item in modes" :key="item.value" type="button" :aria-pressed="mode === item.value" :disabled="sending" @click="mode = item.value">{{ item.label }}</button></div>
     <div class="knowledge-status" role="status"><span class="status-dot" :class="{ ready: snapshot?.ready }"></span><span>{{ snapshot?.ready ? `基于 ${snapshot.tag} 源码与官网文档` : snapshot?.message || '正在读取资料状态…' }}</span><small v-if="snapshot?.stale">资料更新中，当前使用缓存</small><small v-if="snapshot?.warning">{{ snapshot.warning }}</small></div>
-    <div class="intake-workspace"><div class="chat-area">
+    <div class="intake-workspace" :class="{ 'preview-open': draft && showPreview }"><div class="chat-area">
     <div ref="timeline" class="timeline" role="log" aria-label="提交前需求讨论" aria-live="polite">
       <div v-if="!messages.length" class="welcome"><span class="welcome-mark" aria-hidden="true">✦</span><h2>{{ mode === 'consultation' ? '想了解什么？' : mode === 'bug' ? '遇到了什么问题？' : '哪里可以更好？' }}</h2><div class="starter-options"><button v-for="sample in samples" :key="sample" type="button" @click="content = sample">{{ sample }}</button></div></div>
       <article v-for="(message, index) in messages" :key="index" :class="message.role">
         <strong>{{ message.role === 'user' ? '你' : '行影集 AI 助手' }}</strong>
+        <ChatActivity v-if="message.activities?.length" :items="message.activities" />
         <div v-if="message.role === 'assistant'" class="response" v-html="renderConversationMarkdown(message.text)"></div><p v-else>{{ message.text }}</p>
         <details v-if="message.sources?.length" class="sources"><summary>参考资料 · {{ message.sources.length }}</summary><a v-for="source in message.sources" :key="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.kind === 'code' ? '源码' : '文档' }} · {{ source.path }}<span v-if="source.kind === 'code'">:{{ source.line }}</span></a></details>
       </article>
-      <article v-if="sending" class="assistant"><ThinkingDots /></article>
+      <article v-if="sending" class="assistant"><ChatActivity :items="activities" active /><ThinkingDots label="正在处理，请稍候" /></article>
     </div>
     <form class="panel composer" @submit.prevent="send">
       <ChatQuota :quota="quota" />
-      <el-input v-model="content" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" resize="none" maxlength="2000" show-word-limit aria-label="讨论内容" placeholder="描述问题，或回答 AI 的提问…" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
-      <div class="actions"><span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : '只读分析 · 仅讨论行影集' }}</span><el-button type="primary" native-type="submit" :loading="sending" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">发送</el-button></div>
+      <el-input v-model="content" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :readonly="sending" resize="none" maxlength="2000" show-word-limit aria-label="讨论内容" placeholder="聊聊行影集，或补充刚才的细节…" @keydown="chatEnter($event, send)" />
+      <div class="actions"><span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : 'Enter 发送 · Shift + Enter 换行' }}</span><el-button type="primary" native-type="submit" :loading="sending" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">发送 ↑</el-button></div>
     </form>
-    <button v-if="draft" class="mobile-preview-toggle" type="button" :aria-expanded="showPreview" @click="showPreview = !showPreview">{{ showPreview ? '收起需求单 ↑' : '查看需求单 · 确认提交 →' }}</button>
     </div>
-    <section v-if="draft" class="panel preview" :class="{ expanded: showPreview }" aria-label="AI 整理的需求单">
-      <div class="preview-title"><h2>需求单</h2><span class="draft-status" role="status">已更新 · 待确认</span></div>
+    <section v-if="draft" v-show="showPreview" class="panel preview" :class="{ expanded: showPreview }" aria-label="AI 整理的需求单">
+      <div class="preview-title"><h2>需求单</h2><span class="draft-status" role="status">待确认</span><button class="preview-close" type="button" aria-label="关闭需求预览" @click="showPreview = false">×</button></div>
       <el-form label-position="top" @submit.prevent="submit">
         <el-form-item label="需求类型"><el-select v-model="draft.type"><el-option label="问题修复" value="bug" /><el-option label="体验优化" value="improvement" /><el-option label="新功能" value="feature" /></el-select></el-form-item>
         <el-form-item label="需求标题" required><el-input v-model="draft.title" maxlength="160" /></el-form-item>
@@ -48,11 +48,23 @@ import { renderConversationMarkdown } from '../../conversationMarkdown'
 import RequirementContact from '../../components/RequirementContact.vue'
 import ChatQuota from '../../components/ChatQuota.vue'
 import ThinkingDots from '../../components/ThinkingDots.vue'
+import { chatEnter } from '../../chatKeyboard'
+import ChatActivity from '../../components/ChatActivity.vue'
+import type { ChatActivity as Activity } from '../../api/chatStream'
 
 const router = useRouter(), receipts = useAnonymousReceipts()
 const content = ref(''), email = ref(''), optIn = ref(false), sending = ref(false), submitting = ref(false), submitted = ref(false)
 const draft = ref<Draft | null>(null), quota = ref<Quota>(), cooldown = ref(0)
-const messages = ref<{ role: string; text: string; sources?: Source[] }[]>([])
+const messages = ref<{ role: string; text: string; sources?: Source[]; activities?: Activity[] }[]>([])
+const activities = ref<Activity[]>([])
+let controller: AbortController | undefined, stopped = false
+function updateActivity(event: Activity) {
+  if (stopped || activities.value.length >= 24) return
+  const last = activities.value[activities.value.length - 1]
+  if (last?.kind === event.kind && last.status === 'running') Object.assign(last, event)
+  else activities.value.push(event)
+  void scrollToEnd()
+}
 const mode = ref<ChatMode>('feedback'), snapshot = ref<Snapshot>()
 const modes: { value: ChatMode; label: string }[] = [{ value: 'feedback', label: '✦ 需求反馈' }, { value: 'bug', label: '⌕ 问题排查' }, { value: 'consultation', label: '？使用咨询' }]
 const samples = computed(() => mode.value === 'consultation' ? ['行影集如何添加照片目录？', '行影集如何开启人脸识别？', '如何在飞牛 NAS 安装行影集？'] : mode.value === 'bug' ? ['行影集照片导出失败', '行影集登录后出现报错', '行影集地图轨迹有问题'] : ['行影集想增加批量操作', '想改进人物相册', '行影集照片导出体验优化'])
@@ -70,19 +82,25 @@ function persist() {
 function reason(e: any) { return e?.response?.data?.msg || '暂时无法连接，请稍后重试，也可以填写表单提交' }
 async function scrollToEnd() { await nextTick(); if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight }
 async function send() {
-  if (sending.value || submitting.value || cooldown.value || !content.value.trim()) return
+  if (sending.value || submitting.value || cooldown.value || quota.value?.exhausted || !content.value.trim()) return
   sending.value = true
+  activities.value = []
+  controller = new AbortController()
   const text = content.value.trim()
   messages.value.push({ role: 'user', text })
   await scrollToEnd()
   try {
-    const result = await intake.send(key, text, state, mode.value)
-    messages.value.push({ role: 'assistant', text: result.reply, sources: result.sources })
+    const result = await intake.stream(key, text, state, mode.value, updateActivity, controller.signal)
+    if (stopped) return
+    for (const activity of activities.value) if (activity.status === 'running') activity.status = 'completed'
+    messages.value.push({ role: 'assistant', text: result.reply, sources: result.sources, activities: [...activities.value] })
     if (result.snapshot) snapshot.value = result.snapshot
+    if (result.draft && !draft.value && window.innerWidth > 1000) showPreview.value = true
     draft.value = result.draft; quota.value = result.quota; state = result.state; content.value = ''
     cooldown.value = (result.quota as Quota & { retry_after_seconds?: number }).retry_after_seconds || 0
     pendingSubmission = undefined; persist()
   } catch (e: any) {
+    if (stopped) return
     messages.value.pop()
     cooldown.value = Number(e?.response?.headers?.['retry-after']) || 0
     ElMessage.error(reason(e))
@@ -105,34 +123,38 @@ async function submit() {
   } catch (e) { ElMessage.error(reason(e)) } finally { submitting.value = false }
 }
 onMounted(async () => { const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
-onBeforeUnmount(() => clearInterval(timer))
+onBeforeUnmount(() => { stopped = true; controller?.abort(); clearInterval(timer) })
 </script>
 
 <style scoped>
-.intake-page { max-width:880px; margin:auto; }
-.mode-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}.mode-tabs button{border:1px solid var(--rp-border);background:var(--rp-card);color:var(--rp-text-2);border-radius:12px;min-height:44px;padding:8px 16px;cursor:pointer}.mode-tabs button[aria-pressed=true]{color:var(--rp-primary);border-color:var(--rp-primary);background:var(--rp-primary-soft)}.knowledge-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--rp-text-3);margin-bottom:16px}.status-dot{width:6px;height:6px;border-radius:50%;background:var(--rp-text-3)}.status-dot.ready{background:var(--rp-primary)}.sources{font-size:12px;color:var(--rp-text-3);margin-top:12px}.sources summary{cursor:pointer;padding:8px 0}.sources a{display:block;color:var(--rp-primary);padding:6px 0;overflow-wrap:anywhere}
-header { display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:20px; }
-h1 { margin:0 0 8px; font-size:24px; }h2 { font-size:19px; }
-p,.quota { color:var(--rp-text-2); line-height:1.7; }
-.timeline { padding:20px 0; max-height:55vh; min-height:160px; overflow-y:auto; }
-article { padding:16px; margin-bottom:16px; overflow-wrap:anywhere; }
-article.user { background:var(--rp-primary-soft); border-radius:16px; margin-left:12%; }
-article p { white-space:pre-wrap; }.response { line-height:1.8; }.response :deep(pre) { max-width:100%; overflow:auto; }
-.composer { margin-bottom:24px; }.actions { display:flex; justify-content:space-between; gap:16px; align-items:center; margin-top:12px; }.actions span { font-size:13px; color:var(--rp-text-3); }
-.preview { margin-bottom:24px; }.preview :deep(.el-select) { width:100%; }
-@media(max-width:600px) { header { align-items:flex-start; }h1{font-size:20px}.timeline{max-height:45dvh}.actions span{max-width:65%} }
-.intake-page { max-width:1200px; }
-.intake-workspace { display:grid; grid-template-columns:minmax(0,1fr); gap:24px; align-items:start; }
-.intake-workspace:has(.preview) { grid-template-columns:minmax(0,1.25fr) minmax(320px,.85fr); }
-.chat-area { min-width:0; position:sticky; top:24px; }
-.flow { display:flex; padding:0; gap:24px; list-style:none; font-size:12px; color:var(--rp-text-3); margin:0 0 20px; }.flow .active{color:var(--rp-primary)}
-.timeline { height:clamp(260px,48dvh,580px); max-height:none; border-top:1px solid var(--rp-border); padding:12px 0; scrollbar-width:thin; scroll-behavior:smooth; }
-.timeline article { margin-bottom:8px; padding:12px; animation:arrive .18s ease-out; }.timeline article strong{font-size:12px;color:var(--rp-text-3)}.timeline article p{margin:8px 0;line-height:1.65;color:var(--rp-text)}
-.response { font-size:14px;line-height:1.75; }.response :deep(p){margin:8px 0;}
-.welcome { display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:16px; }.welcome h2{margin:0}.welcome-mark{font-size:32px;color:var(--rp-primary)}.starter-options{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.starter-options button{border:1px solid var(--rp-border);background:var(--rp-card);color:var(--rp-text-2);border-radius:20px;padding:10px 14px;cursor:pointer;min-height:44px}.starter-options button:hover{border-color:var(--rp-primary);color:var(--rp-primary)}
-.composer { padding:12px 16px; border-radius:18px; margin-bottom:12px; }.composer :deep(.el-textarea__inner){box-shadow:none;background:transparent;padding:8px 0;font-size:15px;}.actions{margin-top:8px;min-height:44px}.actions .el-button{min-width:72px;min-height:44px}.actions span{font-size:12px}
-.preview { padding:20px; }.preview-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;gap:8px}.preview-title h2{margin:0}.draft-status{font-size:12px;color:var(--rp-primary)}.privacy-note{font-size:12px}.preview :deep(.el-form-item){margin-bottom:16px}.preview :deep(.el-button[type=submit]){width:100%;min-height:44px}.mobile-preview-toggle{display:none}
-@keyframes arrive{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
-@media(max-width:1000px){.intake-workspace:has(.preview){grid-template-columns:1fr}.chat-area{position:static}.mobile-preview-toggle{display:block;width:100%;min-height:48px;border:1px solid var(--rp-primary);background:var(--rp-primary-soft);color:var(--rp-primary);border-radius:12px;cursor:pointer}.preview{display:none}.preview.expanded{display:block}.timeline{height:clamp(240px,42dvh,480px)}header{margin-bottom:12px}header p{font-size:13px;margin-bottom:0}.flow{gap:20px;margin-bottom:14px}.composer{padding:10px 12px}article.user{margin-left:6%}}
-@media(prefers-reduced-motion:reduce){.timeline article{animation:none}.timeline{scroll-behavior:auto}}
+.intake-page { height:100%; min-height:0; display:flex; flex-direction:column; width:100%; }
+header { flex:none; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:22px 32px 12px; }
+h1 { margin:0; font-size:20px; letter-spacing:-.5px; } header p { margin:6px 0 0; font-size:13px; color:var(--rp-text-3); }
+.header-actions { display:flex; gap:8px; }.header-actions .el-button { margin:0; }
+.mode-tabs { display:flex; flex:none; gap:4px; margin:0 32px 10px; padding:4px; align-self:flex-start; border-radius:12px; background:var(--rp-bg); }
+.mode-tabs button { border:0; background:transparent; color:var(--rp-text-2); border-radius:9px; min-height:36px; padding:8px 16px; cursor:pointer; transition:background .15s,color .15s; }
+.mode-tabs button[aria-pressed=true] { color:var(--rp-primary); background:var(--rp-card); box-shadow:var(--rp-shadow); font-weight:600; }
+.knowledge-status { display:flex; flex:none; align-items:center; gap:7px; font-size:11px; color:var(--rp-text-3); padding:0 32px 12px; overflow:hidden; }
+.knowledge-status > span:nth-child(2) { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }.knowledge-status small { font-size:11px; }
+.status-dot { width:6px; height:6px; border-radius:50%; flex:none; background:var(--rp-text-3); }.status-dot.ready { background:var(--rp-primary); }
+.intake-workspace { position:relative; flex:1; min-height:0; display:grid; grid-template-columns:minmax(0,1fr); }
+.intake-workspace.preview-open { grid-template-columns:minmax(0,1fr) 380px; }
+.chat-area { min-width:0; min-height:0; display:flex; flex-direction:column; }
+.timeline { margin:0; border:0; flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:20px max(28px,calc((100% - 860px)/2)); scrollbar-width:thin; }
+.timeline article { margin:0 0 28px; padding:0; overflow-wrap:anywhere; animation:arrive .2s ease-out; }
+.timeline article strong { display:block; font-size:12px; font-weight:500; color:var(--rp-text-3); margin-bottom:10px; }
+article.user { margin-left:auto; width:fit-content; max-width:85%; padding:14px 20px; background:var(--rp-primary-soft); border-radius:20px 20px 6px 20px; }
+article.user strong { display:none; } article.user p { white-space:pre-wrap; margin:0; line-height:1.7; color:var(--rp-text); }
+.response { line-height:1.85; font-size:15px; }.response :deep(p) { margin:8px 0; }.response :deep(h1),.response :deep(h2),.response :deep(h3) { font-size:1.1em; margin:20px 0 10px; }.response :deep(pre) { overflow:auto; padding:16px; border-radius:12px; background:var(--rp-bg); }.response :deep(table) { display:block; max-width:100%; overflow:auto; border-collapse:collapse; }.response :deep(th),.response :deep(td) { border:1px solid var(--rp-border); padding:6px 10px; }.response :deep(a),.sources a { color:var(--rp-primary); }.response :deep(ul),.response :deep(ol) { padding-left:24px; }
+.sources { font-size:12px; color:var(--rp-text-3); margin-top:12px; }.sources summary { cursor:pointer; padding:8px 0; }.sources a { display:block; padding:6px 0; overflow-wrap:anywhere; }
+.welcome { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100%; gap:20px; padding:24px 0; text-align:center; }.welcome h2 { margin:0; font-size:27px; letter-spacing:-.8px; }.welcome-mark { display:grid; place-items:center; width:64px; height:64px; border:1px solid var(--rp-border); border-radius:22px; color:var(--rp-primary); background:var(--rp-card); font-size:36px; box-shadow:var(--rp-shadow); }
+.starter-options { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; }.starter-options button { border:1px solid var(--rp-border); background:var(--rp-card); color:var(--rp-text-2); border-radius:14px; padding:12px 16px; cursor:pointer; min-height:44px; transition:transform .15s,border-color .15s; }.starter-options button:hover { transform:translateY(-2px); border-color:var(--rp-primary); color:var(--rp-primary); }
+.composer { flex:none; width:calc(100% - 56px); max-width:860px; align-self:center; margin:8px 28px max(20px,env(safe-area-inset-bottom)); padding:10px 18px 12px; border-radius:22px; background:var(--rp-card); box-shadow:var(--rp-shadow); transition:border-color .15s; }.composer:focus-within { border-color:var(--rp-primary); }.composer :deep(.el-textarea__inner) { box-shadow:none; background:transparent; padding:8px 0 20px; font-size:16px; line-height:1.6; }.composer :deep(.el-input__count) { background:transparent; }.actions { display:flex; justify-content:space-between; gap:10px; align-items:center; margin-top:4px; }.actions span { color:var(--rp-text-3); font-size:11px; }.actions .el-button { flex:none; min-width:80px; min-height:40px; border-radius:13px; }
+.preview { min-height:0; overflow-y:auto; overscroll-behavior:contain; margin:0; padding:22px; border-radius:0; border-width:0 0 0 1px; background:var(--rp-card); }.preview-title { display:flex; align-items:center; gap:12px; margin-bottom:22px; }.preview-title h2 { margin:0; font-size:18px; }.draft-status { font-size:12px; color:var(--rp-primary); }.preview-close { margin-left:auto; border:0; background:var(--rp-bg); color:var(--rp-text-2); width:36px; height:36px; font-size:24px; border-radius:10px; cursor:pointer; }.preview :deep(.el-select) { width:100%; }.preview :deep(.el-button[type=submit]) { width:100%; min-height:44px; }.privacy-note { font-size:12px; color:var(--rp-text-3); }
+button:focus-visible { outline:2px solid var(--rp-primary); outline-offset:3px; }
+@keyframes arrive { from { opacity:0; transform:translateY(5px) } to { opacity:1; transform:translateY(0) } }
+@media(max-width:1000px) { .intake-workspace.preview-open { grid-template-columns:minmax(0,1fr); }.preview { position:absolute; inset:0 0 0 auto; width:min(100%,440px); z-index:5; box-shadow:var(--rp-shadow); } }
+@media(max-width:600px) { header { padding:14px 16px 10px; gap:8px; }h1 { font-size:18px; } header p { display:none; }.header-actions .el-button { padding:8px 10px; }.mode-tabs { margin:0 12px 8px; align-self:stretch; }.mode-tabs button { flex:1; padding:8px 6px; font-size:13px; }.knowledge-status { padding:0 16px 8px; }.knowledge-status small { display:none; }.timeline { padding:16px; }.welcome { gap:16px; }.welcome h2 { font-size:23px; }.starter-options { flex-direction:column; width:100%; max-width:320px; }.starter-options button { text-align:left; }article.user { max-width:92%; padding:12px 16px; }.composer { width:calc(100% - 24px); margin:6px 12px max(10px,env(safe-area-inset-bottom)); padding:8px 12px 10px; border-radius:18px; }.actions span { font-size:10px; }.preview { padding:18px; } }
+@media(max-height:600px) { .knowledge-status { display:none; }.composer :deep(.el-textarea__inner) { min-height:48px!important; height:48px!important; }.composer :deep(.chat-quota) { margin:0; }.timeline { padding-top:8px; padding-bottom:8px; } }
+@media(prefers-reduced-motion:reduce) { .timeline article { animation:none; }.starter-options button { transition:none; } }
 </style>

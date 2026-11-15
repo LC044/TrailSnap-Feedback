@@ -46,6 +46,8 @@ def run_with_fallback(targets, prompt, **kwargs):
             except HTTPException:
                 raise  # Local budget/rate/authorization failures never fail over.
             except Exception:
+                from .chat_activity import emit
+                emit("retrying")
                 continue
         raise RuntimeError("已配置的模型暂不可用，请稍后重试")
     finally:
@@ -103,6 +105,8 @@ def _run(DeepSeekHarness, target, prompt, session_id, workspace, home, patch, kn
         timer.daemon = True
         timer.start()
         try:
+            from .chat_activity import emit
+            emit("analyzing")
             result = harness.run("请处理以下 JSON 资料：\n" + prompt, session_id=session_id)
         finally:
             timer.cancel()

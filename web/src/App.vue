@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell" :class="{ 'nav-collapsed': navCollapsed }">
+  <div class="app-shell" :class="{ 'nav-collapsed': navCollapsed, 'chat-shell': route.name === 'requirement-intake' || route.name === 'requirement-conversation' || tab === 'assistant' }">
     <AppHeader ref="header" :items="visibleTabs" :active="tab" :collapsed="navCollapsed" :user="user"
       @navigate="switchTab" @notification="onNotification" @login="authDialog = true" @toggle="toggleNavigation" @user-command="onUserCommand" />
 

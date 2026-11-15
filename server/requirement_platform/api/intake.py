@@ -1,6 +1,8 @@
 """Bounded pre-submission discussion; model output never executes write tools."""
 import json
 import re
+import queue
+import threading
 from datetime import timedelta
 from typing import Literal
 
@@ -8,17 +10,19 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
 from .responses import ok
 from .. import dsh
 from ..ai_guard import REFUSAL, admit_chat, chat_budget, digest, permitted_topic, quota_view
 from ..ai_settings import resolve_model_targets
 from ..config import settings
-from ..db import get_db
+from ..db import get_db, SessionLocal
 from ..models import User, utcnow
 from ..security import optional_user
 
 router = APIRouter(prefix="/api/intake", tags=["intake"])
+_stream_slots = threading.BoundedSemaphore(4)
 
 
 class IntakeInput(BaseModel):
@@ -83,6 +87,14 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
         raise HTTPException(422, "请描述行影集相关问题")
     admit_chat(db, subject, request.client.host if request.client else "unknown", user is None)
     db.commit()  # Failed model calls and local refusals also consume admission.
+    if "text/event-stream" in request.headers.get("accept", ""):
+        return stream_intake(payload, previous, subject, x_intake_key, user is None)
+    return complete_intake(payload, previous, subject, x_intake_key, user is None, db)
+
+
+def complete_intake(payload, previous, subject, key, anonymous, db):
+    from ..chat_activity import emit
+    emit("preparing")
     context = json.dumps(previous.get("draft"), ensure_ascii=False) if previous.get("draft") else " ".join(
         turn["user"] for turn in previous["history"] if turn.get("assistant") != REFUSAL)
     if previous.get("topic_established"):
@@ -111,10 +123,11 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
             targets = resolve_model_targets(db, "requirement_triage")
             if not targets:
                 raise RuntimeError("No analysis model configured")
-            with chat_budget(subject, user is None):
+            with chat_budget(subject, anonymous):
                 text = dsh.run_with_fallback(targets, json.dumps(prompt, ensure_ascii=False), **({"knowledge": knowledge} if knowledge is not None else {}))
             if text.startswith("```"):
                 text = text.split("\n", 1)[1].rsplit("```", 1)[0]
+            emit("composing")
             result = IntakeReply.model_validate_json(text)
             if payload.mode == "consultation":
                 result.draft = None
@@ -126,9 +139,68 @@ def intake_message(payload: IntakeInput, request: Request, user: User | None = D
     data = result.model_dump()
     history = (previous["history"] + [{"user": payload.content[:600], "assistant": result.reply[:800]}])[-3:]
     count = previous["count"] + 1
-    state = jwt.encode({"sub": subject, "key": digest(x_intake_key), "aud": "feedback-intake",
+    state = jwt.encode({"sub": subject, "key": digest(key), "aud": "feedback-intake",
                         "exp": utcnow() + timedelta(days=1), "history": history, "count": count,
                         "draft": data["draft"], "topic_established": bool(previous.get("topic_established") or allowed)}, settings.jwt_secret, algorithm="HS256")
-    return ok({**data, "state": state, "quota": quota_view(db, subject, user is None, count),
+    return ok({**data, "state": state, "quota": quota_view(db, subject, anonymous, count),
                "sources": list(knowledge.sources.values()) if allowed and knowledge else [],
                "snapshot": knowledge.snapshot if allowed and knowledge else None})
+
+
+def stream_intake(payload, previous, subject, key, anonymous):
+    """Same admission and completion as JSON, with bounded request-local progress.
+
+    Disconnecting never causes an automatic retry. An admitted running call still
+    finishes within the existing model deadline and remains charged.
+    """
+    if not _stream_slots.acquire(blocking=False):
+        raise HTTPException(503, "服务繁忙，请稍后重试")
+    events = queue.Queue(maxsize=32)
+    done, disconnected = threading.Event(), threading.Event()
+    outcome = {}
+
+    def publish(event):
+        if not disconnected.is_set():
+            try:
+                events.put_nowait(event)
+            except queue.Full:
+                pass
+
+    def run():
+        from ..chat_activity import observer
+        token = observer.set(publish)
+        try:
+            with SessionLocal() as db:
+                outcome["result"] = complete_intake(payload, previous, subject, key, anonymous, db)
+        except HTTPException as error:
+            outcome["error"] = {"code": error.status_code, "msg": str(error.detail), "data": None}
+        except Exception:
+            outcome["error"] = {"code": 503, "msg": "AI 暂时无法完成分析，请稍后重试", "data": None}
+        finally:
+            observer.reset(token)
+            done.set()
+            _stream_slots.release()
+
+    def frame(name, data):
+        return f"event: {name}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+    def generate():
+        try:
+            while not done.is_set() or not events.empty():
+                try:
+                    yield frame("activity", ok(events.get(timeout=1)))
+                except queue.Empty:
+                    yield ": keepalive\n\n"
+            kind = "error" if "error" in outcome else "result"
+            yield frame(kind, outcome[kind])
+        finally:
+            disconnected.set()
+
+    try:
+        threading.Thread(target=run, daemon=True, name="intake-stream").start()
+    except Exception:
+        _stream_slots.release()
+        raise HTTPException(503, "服务繁忙，请稍后重试")
+    return StreamingResponse(generate(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache, no-store", "X-Accel-Buffering": "no",
+    })

@@ -8,6 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 @contextmanager
 def knowledge_bridge(knowledge):
+    from .chat_activity import emit, observer
+    activity = observer.get()  # Context variables do not propagate into HTTP threads.
     token = secrets.token_urlsafe(32)
     lock = threading.Lock()
 
@@ -24,8 +26,15 @@ def knowledge_bridge(knowledge):
                 if not 0 < size <= 2000:
                     raise ValueError("Too large")
                 args = json.loads(self.rfile.read(size))
+                name = self.path.removeprefix("/")
                 with lock:
-                    result = knowledge.execute(self.path.removeprefix("/"), args)
+                    emit(name, sink=activity)
+                    try:
+                        result = knowledge.execute(name, args)
+                    except Exception:
+                        emit(name, "failed", sink=activity)
+                        raise
+                    emit(name, "completed", sink=activity)
                 body = json.dumps(result, ensure_ascii=False).encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")

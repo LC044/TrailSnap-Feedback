@@ -26,8 +26,8 @@
         <el-select v-if="canPlan" v-model="mode" aria-label="对话任务" style="width:160px"><el-option label="需求分析" value="analysis" /><el-option label="实现方案" value="plan" /><el-option label="修复建议 / 补丁" value="repair" /></el-select>
       </div>
       <ChatQuota :quota="quota" />
-      <el-input v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :maxlength="2000" show-word-limit resize="none" placeholder="补充细节，或回答 AI 的提问…" aria-label="对话内容" @keydown.ctrl.enter.prevent="send" @keydown.meta.enter.prevent="send" />
-      <div class="composer-actions"><small>{{ cooldown ? `${cooldown} 秒后可发送` : '仅讨论行影集' }}</small><el-button native-type="submit" type="primary" :loading="sending" :disabled="pending || !draft.trim() || quota?.exhausted || cooldown > 0">发送</el-button></div>
+      <el-input v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :maxlength="2000" show-word-limit :readonly="sending || pending" resize="none" placeholder="补充细节，或回答 AI 的提问…" aria-label="对话内容" @keydown="chatEnter($event, send)" />
+      <div class="composer-actions"><small>{{ cooldown ? `${cooldown} 秒后可发送` : 'Enter 发送 · Shift + Enter 换行' }}</small><el-button native-type="submit" type="primary" :loading="sending" :disabled="pending || !draft.trim() || quota?.exhausted || cooldown > 0">发送 ↑</el-button></div>
     </form>
     <details v-if="ready" class="conversation-subscribe"><summary>通过邮箱跟进此需求</summary><form @submit.prevent="subscribe"><el-input v-model="email" type="email" placeholder="你的邮箱" aria-label="通知邮箱" required /><el-button native-type="submit" :loading="subscribing">订阅通知</el-button></form><p>请到邮箱确认订阅，可随时退订。邮件不公开显示你的邮箱。</p></details>
     <details v-if="canPlan" class="conversation-subscribe"><summary>向提交者发起咨询</summary><el-input v-model="question" type="textarea" :rows="3" maxlength="4000" placeholder="请用户补充的信息（将保存在其对话中，并通过邮件提醒）" /><el-button :disabled="question.trim().length < 4" :loading="consulting" @click="consult">发送咨询</el-button></details>
@@ -43,6 +43,7 @@ import { useAnonymousReceipts, newEditToken } from '../../stores/anonymousReceip
 import { renderConversationMarkdown } from '../../conversationMarkdown'
 import ChatQuota from '../../components/ChatQuota.vue'
 import ThinkingDots from '../../components/ThinkingDots.vue'
+import { chatEnter } from '../../chatKeyboard'
 
 const props = defineProps<{ number: number }>()
 const router = useRouter()
@@ -125,4 +126,16 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer); clearInterval(coold
 @media(max-width:600px) { .conversation-head h1{font-size:18px}.conversation-head { align-items:flex-start; }.conversation-timeline{max-height:52dvh}.composer-actions small{max-width:62%;line-height:1.5}.user-message{max-width:94%}.conversation-subscribe form{flex-wrap:wrap} }
 .conversation-composer :deep(.el-textarea__inner){box-shadow:none;padding:8px 0;font-size:15px}.conversation-timeline{scrollbar-width:thin}.conversation-head{padding:8px 0 16px}.composer-options{margin-bottom:0}
 @media(max-width:600px){.conversation-timeline{min-height:220px;max-height:45dvh}.conversation-composer{bottom:8px;padding:12px;border-radius:16px}}
+
+.conversation-page { width:100%; height:100%; min-height:0; max-width:none; padding:0 28px; overflow:hidden; }
+.conversation-head { flex:none; padding:20px 4px 14px; }
+.conversation-timeline { flex:1; min-height:0; max-height:none; padding:20px max(4px,calc((100% - 860px)/2)); overscroll-behavior:contain; }
+.conversation-composer { position:static; flex:none; width:100%; max-width:860px; align-self:center; margin:8px 0 0; border-radius:22px; }
+.conversation-subscribe { flex:none; width:100%; max-width:860px; align-self:center; padding:8px 4px; max-height:28%; overflow-y:auto; }
+.conversation-subscribe summary { min-height:24px; }.conversation-subscribe:last-child { margin-bottom:max(8px,env(safe-area-inset-bottom)); }
+.conversation-composer:focus-within { border-color:var(--rp-primary); }
+.conversation-composer :deep(.el-textarea__inner) { background:transparent; padding-bottom:20px; font-size:16px; line-height:1.6; }
+.composer-actions .el-button { min-width:80px; border-radius:13px; }.composer-actions small { font-size:11px; }
+@media(max-width:600px) { .conversation-page { padding:0 12px; }.conversation-head { padding:14px 0 10px; }.conversation-timeline { min-height:0; max-height:none; padding:16px 0; }.conversation-composer { border-radius:18px; padding:10px 12px; }.assistant-avatar { width:28px; height:28px; border-radius:9px; }.assistant-message { gap:9px; } }
+@media(max-height:600px) { .conversation-composer :deep(.el-textarea__inner) { min-height:48px!important; height:48px!important; }.conversation-composer :deep(.chat-quota) { margin:0; } }
 </style>
