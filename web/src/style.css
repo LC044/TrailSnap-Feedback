@@ -103,7 +103,7 @@ a { color: inherit; }
 .panel { background: rgba(255,255,255,.96); border: 1px solid var(--rp-border); border-radius: var(--rp-radius); padding: 20px; box-shadow: var(--rp-shadow); margin-bottom: 18px; }
 
 /* ---------- 筛选条 ---------- */
-.filters { display: flex; gap: 10px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--rp-border); border-radius: 14px; background: rgba(255,255,255,.82); }
+.filters { display: flex; flex-wrap:wrap; gap: 10px; margin-bottom: 14px; padding: 12px; border: 1px solid var(--rp-border); border-radius: 14px; background: rgba(255,255,255,.82); }
 .filters .search { flex: 1 1 320px; min-width: 220px; }
 .filters .select { width: 128px; }
 .filters .sort { width: 150px; }
@@ -316,6 +316,7 @@ a { color: inherit; }
   .filters .search { grid-column: 1 / -1; max-width: none; }
   .filters .select, .filters .sort { width: 100%; }
   .filters .submit-requirement-btn { grid-column: 1 / -1; width: 100%; margin-left: 0; }
+  .filters .discuss-requirement-btn { grid-column: 1 / -1; width:100%; margin-left:0; }
   .actions > .el-button { flex: 1 1 140px; margin-left: 0; min-height: 40px; }
   .submit-form .actions { display: grid; grid-template-columns: minmax(0, 1fr); }
   .submit-form .actions > .el-button { width: 100%; max-width: 100%; min-width: 0; }
