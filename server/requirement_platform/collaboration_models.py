@@ -45,6 +45,7 @@ class KnowledgeSnapshot(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     tag: Mapped[str] = mapped_column(String(100))
     revision: Mapped[str] = mapped_column(String(40))
+    index_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     refreshed_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow)
     docs_count: Mapped[int] = mapped_column(Integer, default=0)
     code_count: Mapped[int] = mapped_column(Integer, default=0)

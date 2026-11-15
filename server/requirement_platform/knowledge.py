@@ -21,8 +21,10 @@ from .models import utcnow
 
 REPO = "LC044/TrailSnap"
 ORIGIN = "https://trailsnap.cn"
-TOOLS = frozenset({"search_trailsnap_code", "read_trailsnap_source", "search_official_docs"})
-TEXT_SUFFIXES = {".py", ".vue", ".ts", ".tsx", ".js", ".css", ".scss", ".md", ".toml", ".yaml", ".yml"}
+TOOLS = frozenset({"read_trailsnap_source", "search_official_docs"})
+INDEX_VERSION = 1
+TEXT_SUFFIXES = {".py", ".vue", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".css", ".scss", ".md", ".toml", ".yaml", ".yml",
+                 ".rs", ".ps1", ".sh", ".json", ".nsi", ".nsh", ".spec"}
 
 
 def download(url, limit, *, timeout=8, docs=False):
@@ -70,11 +72,12 @@ def archive_files(stream, revision):
             if entry.name.startswith("/") or "\\" in entry.name or ".." in parts or len(parts) < 2:
                 continue
             path = PurePosixPath(*parts[1:])
-            if not entry.isfile() or not 0 < entry.size <= 192000 or path.suffix not in TEXT_SUFFIXES:
+            if not entry.isfile() or not 0 < entry.size <= 192000 or not (
+                path.suffix in TEXT_SUFFIXES or path.name == "Dockerfile" or path.name.startswith("Dockerfile.")):
                 continue
             if any(p.startswith(".") or p in {"node_modules", "vendor", "dist", "data", "uploads"} for p in path.parts):
                 continue
-            if not (str(path).startswith(("package/", "doc/")) or str(path) in {"README.md", "CONTRIBUTING.md"}):
+            if not (str(path).startswith(("package/", "doc/", "scripts/")) or str(path) in {"README.md", "CONTRIBUTING.md"}):
                 continue
             if any(word in path.name.lower() for word in ("secret", "credential", "lock")):
                 continue
@@ -120,7 +123,7 @@ def bundled_code(revision):
         if len(body) > 32 * 1024 * 1024:
             return None
         bundle = json.loads(body)
-        return bundle["files"] if bundle["revision"] == revision else None
+        return bundle["files"] if bundle["revision"] == revision and bundle.get("index_version") == INDEX_VERSION else None
     except (OSError, ValueError, KeyError):
         return None
 
@@ -183,7 +186,14 @@ def refresh_knowledge():
     with SessionLocal() as db:
         now = utcnow()
         db.execute(insert(AIQuota).values(key="knowledge-refresh", used=0, expires_at=now).on_conflict_do_nothing())
-        claimed = db.query(AIQuota).filter(AIQuota.key == "knowledge-refresh", AIQuota.expires_at <= now).update(
+        old = db.get(KnowledgeSnapshot, 1)
+        outdated = bool(old and old.index_version != INDEX_VERSION)
+        # Upgrade an idle successful snapshot immediately, but respect an active
+        # refresh lease and the failure retry delay.
+        eligible = (AIQuota.expires_at <= now)
+        if outdated:
+            eligible = eligible | (AIQuota.used == 0)
+        claimed = db.query(AIQuota).filter(AIQuota.key == "knowledge-refresh", eligible).update(
             {"used": 1, "expires_at": now + timedelta(minutes=70)}, synchronize_session=False)
         db.commit()
         if not claimed:
@@ -193,7 +203,7 @@ def refresh_knowledge():
         tag, revision = resolve_latest()
         with SessionLocal() as db:
             old = db.get(KnowledgeSnapshot, 1)
-            same_revision = bool(old and old.revision == revision)
+            same_revision = bool(old and old.revision == revision and old.index_version == INDEX_VERSION)
         code = None if same_revision else bundled_code(revision)
         if code is None and not same_revision:
             code = fetch_code(revision)
@@ -210,6 +220,7 @@ def refresh_knowledge():
             db.bulk_insert_mappings(KnowledgeFile, docs)
             snapshot = db.get(KnowledgeSnapshot, 1) or KnowledgeSnapshot(id=1)
             snapshot.tag, snapshot.revision, snapshot.refreshed_at = tag, revision, utcnow()
+            snapshot.index_version = INDEX_VERSION
             snapshot.code_count = db.query(KnowledgeFile).filter_by(kind="code").count()
             snapshot.docs_count = len(docs)
             snapshot.warning = "部分官网文档暂不可用" if len(docs) < expected else None
@@ -230,7 +241,8 @@ def status(db):
         return {"ready": False, "message": "资料下载暂时失败，后台会自动重试" if refresh and refresh.used == 2 else "代码与文档正在准备，请稍后再试"}
     stale = utcnow().replace(tzinfo=None) - row.refreshed_at.replace(tzinfo=None) > timedelta(hours=12)
     return {"ready": True, "tag": row.tag, "revision": row.revision, "refreshed_at": row.refreshed_at.isoformat(),
-            "docs_count": row.docs_count, "code_count": row.code_count, "stale": stale, "warning": row.warning}
+            "docs_count": row.docs_count, "code_count": row.code_count, "stale": stale, "warning": row.warning,
+            "index_version": row.index_version}
 
 
 class ReadOnlyKnowledge:
@@ -266,12 +278,13 @@ class ReadOnlyKnowledge:
                     return {"unavailable": True, "message": "资料刚刚更新，请重新提问以使用最新快照"}
                 self.files = {r.path: {"path": r.path, "kind": r.kind, "url": r.url, "content": r.content}
                               for r in db.query(KnowledgeFile)}
-        if name == "read_trailsnap_source":
+        kind = "docs" if name == "search_official_docs" else "code"
+        if "path" in args:
             if set(args) - {"path", "start_line"} or not isinstance(args.get("path"), str):
                 raise ValueError("Invalid source path")
             row = self.files.get(args["path"])
             start = args.get("start_line", 1)
-            if not row or row["kind"] != "code" or type(start) is not int or not 1 <= start <= 100000:
+            if not row or row["kind"] != kind or type(start) is not int or not 1 <= start <= 100000:
                 raise ValueError("Source unavailable")
             return self.excerpt(row, start, start + 49)
         query = args.get("query")
@@ -281,7 +294,6 @@ class ReadOnlyKnowledge:
         raw_terms = re.findall(r"[A-Za-z_][A-Za-z0-9_]{1,40}|[\u4e00-\u9fff]{2,20}", query.lower())
         terms = list(dict.fromkeys(raw_terms + [term[i:i + 2] for term in raw_terms if re.fullmatch(r"[\u4e00-\u9fff]+", term) for i in range(len(term) - 1)]))
         terms = [term for term in terms if term not in {"行影集", "如何", "怎么", "什么", "问题", "的使", "使用"}][:20]
-        kind = "docs" if name == "search_official_docs" else "code"
         ranked = []
         for row in self.files.values():
             if row["kind"] != kind:

@@ -39,7 +39,7 @@ def indexed():
 
 def test_tools_scope_evidence_and_run_limits(indexed):
     reader = knowledge.ReadOnlyKnowledge()
-    result = reader.execute("search_trailsnap_code", {"query": "export_photo"})
+    result = reader.execute("read_trailsnap_source", {"query": "export_photo"})
     assert result["results"][0]["path"] == "package/server/export.py"
     assert result["snapshot"]["revision"] == "a" * 40
     assert reader.execute("search_official_docs", {"query": "导出"})["results"][0]["url"].startswith(knowledge.ORIGIN)
@@ -56,6 +56,13 @@ def test_archive_never_extracts_paths_or_links():
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
         for name, data, link in [
             ("release/package/server/good.py", b"print('source only')", False),
+            ("release/package/desktop/src-tauri/src/llama_runtime.rs", b"fn windows_asset() {}", False),
+            ("release/scripts/build-windows-installer.ps1", b"Write-Host 'build'", False),
+            ("release/package/ai/Dockerfile.cpu", b"FROM python", False),
+            ("release/package/ai/config.json", b'{"public": true}', False),
+            ("release/scripts/.env.json", b"secret", False),
+            ("release/scripts/token-secret.ps1", b"secret", False),
+            ("release/package/desktop/src/binary.rs", b"\x00binary", False),
             ("release/../../escape.py", b"bad", False),
             ("release/package/server/.env.py", b"secret", False),
             ("release/package/server/linked.py", b"", True),
@@ -67,7 +74,8 @@ def test_archive_never_extracts_paths_or_links():
             archive.addfile(entry, io.BytesIO(data))
     buffer.seek(0)
     rows = knowledge.archive_files(buffer, "a" * 40)
-    assert [r["path"] for r in rows] == ["package/server/good.py"]
+    assert [r["path"] for r in rows] == ["package/server/good.py", "package/desktop/src-tauri/src/llama_runtime.rs",
+                                          "scripts/build-windows-installer.ps1", "package/ai/Dockerfile.cpu", "package/ai/config.json"]
 
 
 def test_image_cache_requires_exact_latest_revision(tmp_path, monkeypatch):
@@ -77,6 +85,8 @@ def test_image_cache_requires_exact_latest_revision(tmp_path, monkeypatch):
     assert knowledge.bundled_code("a" * 40) is None
     cache.write_bytes(gzip.compress(json.dumps({"revision": "a" * 40, "files": [{"path": "code.py"}]}).encode()))
     assert knowledge.bundled_code("b" * 40) is None
+    assert knowledge.bundled_code("a" * 40) is None  # Old indexing policy is incompatible too.
+    cache.write_bytes(gzip.compress(json.dumps({"revision": "a" * 40, "index_version": knowledge.INDEX_VERSION, "files": [{"path": "code.py"}]}).encode()))
     assert knowledge.bundled_code("a" * 40) == [{"path": "code.py"}]
     cache.write_bytes(b"corrupt")
     assert knowledge.bundled_code("a" * 40) is None
@@ -131,6 +141,55 @@ def test_refresh_failure_retains_complete_snapshot(indexed, monkeypatch):
     with SessionLocal() as db:
         assert db.get(KnowledgeSnapshot, 1).revision == "a" * 40
         assert db.query(KnowledgeFile).count() == 2
+
+
+@pytest.mark.parametrize("used,should_refresh", [(0, True), (1, False), (2, False)])
+def test_index_upgrade_rebuilds_same_sha_without_stealing_lease_or_retry_delay(indexed, monkeypatch, used, should_refresh):
+    from datetime import timedelta
+    from requirement_platform.collaboration_models import AIQuota
+    from requirement_platform.models import utcnow
+    with SessionLocal() as db:
+        db.query(AIQuota).filter_by(key="knowledge-refresh").delete()
+        db.add(AIQuota(key="knowledge-refresh", used=used, expires_at=utcnow() + timedelta(hours=1)))
+        db.commit()
+    fetched = []
+    monkeypatch.setattr(knowledge, "resolve_latest", lambda: ("v-test", "a" * 40))
+    monkeypatch.setattr(knowledge, "bundled_code", lambda revision: None)
+    def fetch(revision):
+        fetched.append(revision)
+        return [{"path": "package/desktop/runtime.rs", "kind": "code", "content": "fn runtime() {}", "url": "source"}]
+    monkeypatch.setattr(knowledge, "fetch_code", fetch)
+    monkeypatch.setattr(knowledge, "fetch_docs", lambda: ([{"path": "/docs/a", "kind": "docs", "content": "public docs", "url": "docs"}], 1))
+    knowledge.refresh_knowledge()
+    assert bool(fetched) is should_refresh
+    with SessionLocal() as db:
+        assert db.get(KnowledgeSnapshot, 1).index_version == (knowledge.INDEX_VERSION if should_refresh else 0)
+        if should_refresh:
+            assert db.get(KnowledgeFile, "package/desktop/runtime.rs")
+            assert not db.get(KnowledgeFile, "package/server/export.py")
+    if should_refresh:
+        knowledge.refresh_knowledge()
+        assert len(fetched) == 1  # Current policy retains the normal six-hour refresh interval.
+
+
+def test_two_readers_support_search_and_exact_read_without_cross_kind_access(indexed):
+    assert knowledge.TOOLS == {"read_trailsnap_source", "search_official_docs"}
+    with SessionLocal() as db:
+        db.add(KnowledgeFile(path="package/desktop/src-tauri/src/llama_runtime.rs", kind="code",
+                             content='fn windows_asset() { "llama-bin-win-cpu.zip" }', url="https://github.com/LC044/TrailSnap/blob/a/runtime.rs"))
+        db.commit()
+    reader = knowledge.ReadOnlyKnowledge()
+    assert reader.files is None
+    result = reader.execute("read_trailsnap_source", {"query": "llama_runtime"})
+    assert result["results"][0]["path"].endswith("llama_runtime.rs")
+    assert "win-cpu" in reader.execute("read_trailsnap_source", {"path": result["results"][0]["path"]})["text"]
+    docs = reader.execute("search_official_docs", {"query": "导出"})
+    assert "related_code" not in docs
+    assert "导出" in reader.execute("search_official_docs", {"path": docs["results"][0]["path"]})["text"]
+    with pytest.raises(ValueError):
+        reader.execute("search_official_docs", {"path": "package/desktop/src-tauri/src/llama_runtime.rs"})
+    with pytest.raises(ValueError):
+        reader.execute("read_trailsnap_source", {"path": "/docs/guide/export.html"})
 
 
 @pytest.mark.skipif(sys.platform == 'win32', reason='Official native SDK runtime is verified on Linux')

@@ -7,7 +7,6 @@ LABELS = {
     "analyzing": "正在分析问题",
     "retrying": "正在重新连接服务",
     "composing": "正在整理回答",
-    "search_trailsnap_code": "检索行影集源码",
     "read_trailsnap_source": "查阅相关代码",
     "search_official_docs": "检索官网文档",
 }

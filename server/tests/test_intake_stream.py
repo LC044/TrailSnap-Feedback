@@ -28,8 +28,8 @@ def frames(response):
 def test_stream_auth_state_admission_and_final_result(monkeypatch):
     def run(*_, **__):
         emit("analyzing")
-        emit("search_trailsnap_code")
-        emit("search_trailsnap_code", "completed")
+        emit("read_trailsnap_source")
+        emit("read_trailsnap_source", "completed")
         emit("secret prompt and credentials")
         return json.dumps({"reply": "请补充行影集导出格式", "draft": None})
     monkeypatch.setattr(intake, "resolve_model_targets", lambda *_: [object()])

@@ -115,8 +115,8 @@ def complete_intake(payload, previous, subject, key, anonymous, db):
                 prompt["snapshot"] = knowledge.snapshot
                 prompt["task"] = (
                     "回答行影集相关问题，仅返回 schema JSON。feedback 模式讨论需求并整理草稿，bug 模式结合代码分析原因、给出修复建议并整理 bug 草稿；"
-                    "consultation 模式解答使用问题，draft 必须为 null。先用只读工具检索：使用咨询优先检索官网文档，bug 或新需求优先检索源码，必要时再读具体片段。"
-                    "最多六次工具查询、最多三轮模型请求，尽量一次并行搜索，最后一轮必须给出结论。仅输出建议，不得声称执行了修复。"
+                    "consultation 模式解答使用问题，draft 必须为 null。可查阅官网文档和发布版源码，自行决定检索与阅读方式。"
+                    "仅输出建议，不得声称执行了修复。"
                     "代码固定为 snapshot 指定版本，官网文档可能比代码更新。缺少快照、检索无结果或存在版本差异时如实说明，不编造源码依据。"
                     "reply 先回答用户，再最多追问两个问题。根据用户已经提供的信息整理草稿，缺失信息不要编造。用户确认后才会提交。整体不超过1000字。"
                 )

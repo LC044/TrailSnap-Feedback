@@ -4,12 +4,10 @@ export const inject = ['tools']
 
 export function apply(ctx, config) {
   const definitions = [
-    ['search_trailsnap_code', 'Search the fixed latest TrailSnap release source. Use short code identifiers or keywords.',
-      { query: { type: 'string', maxLength: 120 } }, ['query']],
-    ['read_trailsnap_source', 'Read up to 50 lines from an exact source path returned by code search.',
-      { path: { type: 'string', maxLength: 500 }, start_line: { type: 'integer', minimum: 1 } }, ['path']],
-    ['search_official_docs', 'Search cached official TrailSnap website documentation. Use short product keywords.',
-      { query: { type: 'string', maxLength: 120 } }, ['query']],
+    ['read_trailsnap_source', 'Read TrailSnap release source. Supply query to find files by keywords or path fragments; alternatively supply an exact path and optional start_line to read 50 lines. Source includes Python, Vue/TypeScript, Rust and build/install scripts.',
+      { query: { type: 'string', maxLength: 120 }, path: { type: 'string', maxLength: 500 }, start_line: { type: 'integer', minimum: 1 } }, []],
+    ['search_official_docs', 'Read official TrailSnap documentation. Supply query to find pages; alternatively supply an exact returned path and optional start_line to read 50 lines.',
+      { query: { type: 'string', maxLength: 120 }, path: { type: 'string', maxLength: 500 }, start_line: { type: 'integer', minimum: 1 } }, []],
   ]
   for (const [name, description, properties, required] of definitions) {
     ctx.tools.register({
