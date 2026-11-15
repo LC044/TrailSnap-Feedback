@@ -1,0 +1,15 @@
+.env
+tests/.env.test
+.venv/
+node_modules/
+dist/
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.tmp-build/
+pytest-of-*/
+.playwright-cli/
+output/
+*.log
