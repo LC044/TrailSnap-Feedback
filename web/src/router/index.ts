@@ -28,4 +28,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/:pathMatch(.*)*', redirect: '/' },
 ]
 
-export const router = createRouter({ history: createWebHistory(APP_BASE_PATH), routes })
+export const router = createRouter({
+  history: createWebHistory(APP_BASE_PATH), routes,
+  scrollBehavior: (_to, _from, saved) => saved || { top: 0 },
+})

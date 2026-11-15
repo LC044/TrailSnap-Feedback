@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
-    "test": "vitest run"
+    "test": "vitest run --exclude tests/** && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
