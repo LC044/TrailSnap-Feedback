@@ -99,53 +99,44 @@
 </article>
 </div>
 
-<!-- 分布 -->
-<div class="charts-grid">
-  <article class="panel chart-card">
-    <h2>模型分布</h2>
-    <template v-if="overview.by_model.length">
-      <div v-for="row in modelRows" :key="row.key" class="hbar-row" :title="`${row.label}：$${fmtCost(row.total_cost_usd)}（${row.requests} 次）`">
-        <span class="hbar-label">{{ row.label }}</span>
-        <div class="hbar-track"><div class="hbar-fill" :style="{ width: `${row.pct}%` }"></div></div>
-        <span class="hbar-value">${{ fmtCost(row.total_cost_usd) }}</span>
-      </div>
-    </template>
+<!-- 分布：Tab 切换，默认模型分布 -->
+<article class="panel chart-card breakdown-card">
+  <div class="breakdown-tabs" role="tablist" aria-label="用量分布">
+    <button
+      v-for="tab in breakdownTabs"
+      :key="tab.key"
+      type="button"
+      role="tab"
+      :aria-selected="activeBreakdown === tab.key"
+      class="breakdown-tab"
+      :class="{ active: activeBreakdown === tab.key }"
+      @click="activeBreakdown = tab.key"
+    >
+      {{ tab.label }}<span class="breakdown-tab-count">{{ tab.count }}</span>
+    </button>
+  </div>
+  <div class="breakdown-table-wrap">
+    <table v-if="activeBreakdownRows.length" class="breakdown-table">
+      <thead>
+        <tr>
+          <th class="col-name">{{ activeBreakdownName }}</th>
+          <th class="col-num">请求数</th>
+          <th class="col-num">成本 (USD)</th>
+          <th class="col-num">Tokens</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr v-for="row in activeBreakdownRows" :key="row.key">
+          <td class="col-name"><span class="breakdown-name" :title="row.label">{{ row.label }}</span></td>
+          <td class="col-num">{{ row.requests.toLocaleString() }}</td>
+          <td class="col-num cost">${{ fmtCost(row.total_cost_usd) }}</td>
+          <td class="col-num" :title="row.real_total_tokens.toLocaleString()">{{ fmtTokens(row.real_total_tokens) }}</td>
+        </tr>
+      </tbody>
+    </table>
     <p v-else class="chart-empty">暂无数据</p>
-  </article>
-
-  <article class="panel chart-card">
-    <h2>供应商分布</h2>
-    <template v-if="overview.by_provider.length">
-      <div v-for="row in providerRows" :key="row.key" class="hbar-row" :title="`${row.label}：$${fmtCost(row.total_cost_usd)}（${row.requests} 次）`">
-        <span class="hbar-label">{{ row.label }}</span>
-        <div class="hbar-track"><div class="hbar-fill" :style="{ width: `${row.pct}%` }"></div></div>
-        <span class="hbar-value">${{ fmtCost(row.total_cost_usd) }}</span>
-      </div>
-    </template>
-    <p v-else class="chart-empty">暂无数据</p>
-  </article>
-
-  <article class="panel chart-card">
-    <h2>应用分布</h2>
-    <template v-if="overview.by_app_type.length">
-      <div v-for="row in appTypeRows" :key="row.key" class="hbar-row" :title="`${row.label}：$${fmtCost(row.total_cost_usd)}（${row.requests} 次）`">
-        <span class="hbar-label">{{ row.label }}</span>
-        <div class="hbar-track"><div class="hbar-fill" :style="{ width: `${row.pct}%` }"></div></div>
-        <span class="hbar-value">${{ fmtCost(row.total_cost_usd) }}</span>
-      </div>
-    </template>
-    <p v-else class="chart-empty">暂无数据</p>
-  </article>
-
-  <article v-if="overview.by_device.length > 1" class="panel chart-card">
-    <h2>设备分布</h2>
-    <div v-for="row in deviceRows" :key="row.key" class="hbar-row" :title="`${row.label}：$${fmtCost(row.total_cost_usd)}（${row.requests} 次）`">
-      <span class="hbar-label">{{ row.label }}</span>
-      <div class="hbar-track"><div class="hbar-fill" :style="{ width: `${row.pct}%` }"></div></div>
-      <span class="hbar-value">${{ fmtCost(row.total_cost_usd) }}</span>
-    </div>
-  </article>
-</div>
+  </div>
+</article>
 </template>
 
 <script setup lang="ts">
@@ -329,13 +320,18 @@ function moveHover(delta: number) {
 }
 
 // ---------- 分布 ----------
-function toRows(items: UsageBreakdownItem[], labelMap?: Record<string, string>) {
+type BreakdownRow = {
+  key: string; label: string; total_cost_usd: number; requests: number
+  real_total_tokens: number; pct: number
+}
+function toRows(items: UsageBreakdownItem[], labelMap?: Record<string, string>): BreakdownRow[] {
   const max = Math.max(1, ...items.map(item => item.total_cost_usd))
   return items.map(item => ({
     key: item.key,
     label: (labelMap?.[item.key] ?? item.label ?? item.key) || '未知',
     total_cost_usd: item.total_cost_usd,
     requests: item.requests,
+    real_total_tokens: item.real_total_tokens,
     pct: (item.total_cost_usd / max) * 100,
   }))
 }
@@ -344,6 +340,33 @@ const providerRows = computed(() => toRows(overview.value?.by_provider ?? []).sl
 const appTypeLabels: Record<string, string> = { claude: 'Claude Code', 'claude-desktop': 'Claude Desktop', codex: 'Codex', gemini: 'Gemini' }
 const appTypeRows = computed(() => toRows(overview.value?.by_app_type ?? [], appTypeLabels))
 const deviceRows = computed(() => toRows(overview.value?.by_device ?? []))
+
+// 分布 Tab：默认模型；设备仅在多台时出现
+type BreakdownTabKey = 'model' | 'provider' | 'app' | 'device'
+const activeBreakdown = ref<BreakdownTabKey>('model')
+const breakdownTabs = computed<Array<{ key: BreakdownTabKey; label: string; count: number }>>(() => {
+  const tabs: Array<{ key: BreakdownTabKey; label: string; count: number }> = [
+    { key: 'model', label: '模型', count: (overview.value?.by_model ?? []).length },
+    { key: 'provider', label: '供应商', count: (overview.value?.by_provider ?? []).length },
+    { key: 'app', label: '应用', count: (overview.value?.by_app_type ?? []).length },
+  ]
+  if ((overview.value?.by_device ?? []).length > 1)
+    tabs.push({ key: 'device', label: '设备', count: overview.value!.by_device.length })
+  return tabs
+})
+const activeBreakdownRows = computed<BreakdownRow[]>(() => {
+  switch (activeBreakdown.value) {
+    case 'provider': return providerRows.value
+    case 'app': return appTypeRows.value
+    case 'device': return deviceRows.value
+    default: return modelRows.value
+  }
+})
+const activeBreakdownName = computed(() => breakdownTabs.value.find(tab => tab.key === activeBreakdown.value)?.label ?? '')
+// 数据刷新后当前 tab 可能消失（如设备仅剩一台），回退到默认模型 tab
+watch(breakdownTabs, tabs => {
+  if (!tabs.some(tab => tab.key === activeBreakdown.value)) activeBreakdown.value = 'model'
+})
 const donutColors = ['#ff8747', '#2f74ef', '#8b5cf6', '#10a59c', '#cbd5e1']
 const costPct = (value: number) => {
   const total = overview.value?.total.total_cost_usd || 0
@@ -364,3 +387,85 @@ const donutStyle = computed(() => {
 })
 
 </script>
+
+<style scoped>
+.breakdown-card { padding: 0; overflow: hidden; }
+.breakdown-tabs {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--rp-border);
+}
+.breakdown-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 2px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--rp-text-3);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  transition: color .15s;
+}
+.breakdown-tab:hover { color: var(--rp-text-2); }
+.breakdown-tab.active { color: var(--rp-text); }
+.breakdown-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--rp-primary);
+}
+.breakdown-tab:focus-visible { outline: 2px solid var(--rp-primary); outline-offset: 2px; }
+.breakdown-tab-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--rp-bg);
+  color: var(--rp-text-3);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.breakdown-tab.active .breakdown-tab-count { background: var(--rp-primary-soft); color: var(--rp-primary); }
+.breakdown-table-wrap { overflow-x: auto; }
+.breakdown-table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 520px; }
+.breakdown-table th {
+  padding: 12px 22px;
+  color: var(--rp-text-3);
+  font-weight: 600;
+  font-size: 12.5px;
+  text-align: left;
+  background: var(--rp-bg);
+  white-space: nowrap;
+}
+.breakdown-table td {
+  padding: 13px 22px;
+  border-bottom: 1px solid var(--rp-border);
+  white-space: nowrap;
+}
+.breakdown-table tbody tr:last-child td { border-bottom: 0; }
+.breakdown-table .col-num { text-align: right; font-variant-numeric: tabular-nums; color: var(--rp-text); }
+.breakdown-table .col-num.cost { color: #ea580c; font-weight: 600; }
+.breakdown-name {
+  display: inline-block;
+  max-width: 320px;
+  color: var(--rp-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .breakdown-tabs { gap: 18px; padding: 0 14px; overflow-x: auto; }
+  .breakdown-tab { font-size: 14px; padding: 13px 1px 11px; }
+  .breakdown-table th, .breakdown-table td { padding: 10px 14px; }
+}
+</style>
