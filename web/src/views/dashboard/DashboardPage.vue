@@ -17,12 +17,12 @@
       </div>
     </div>
 
-    <DashboardKpi :data="data" :points="slicedPoints" @navigate="emit('navigate', $event)" />
+    <DashboardKpi :data="data" :points="slicedPoints" :manager="manager" @navigate="emit('navigate', $event)" />
 
     <div v-if="insight" class="insight-bar">
       <el-icon :size="16"><InfoFilled /></el-icon>
       <span>{{ insight }}</span>
-      <button v-if="data.pending_review" type="button" @click="emit('navigate', 'admin')">前往审核 <el-icon :size="12"><ArrowRight /></el-icon></button>
+      <button v-if="data.pending_review && manager" type="button" @click="emit('navigate', 'admin')">前往审核 <el-icon :size="12"><ArrowRight /></el-icon></button>
     </div>
 
     <div class="dashboard-main-grid">
@@ -35,7 +35,7 @@
       <DashboardRanking :data="data" @open-detail="emit('open-detail', $event)" />
     </div>
 
-    <p class="dashboard-footnote">口径说明：统计范围为未删除的全部需求；新增趋势按创建时间统计，完成、关闭与平均处理时长按最近更新时间估算。时间范围仅影响趋势图与顶部指标卡。</p>
+    <p class="dashboard-footnote">口径说明：统计范围为{{ manager ? '未删除的全部需求' : '未删除的公开需求' }}；新增趋势按创建时间统计，完成、关闭与平均处理时长按最近更新时间估算。时间范围仅影响趋势图与顶部指标卡。</p>
   </section>
 </template>
 
@@ -50,7 +50,7 @@ import DashboardBreakdown from './DashboardBreakdown.vue'
 import DashboardRanking from './DashboardRanking.vue'
 import { formatUpdatedAt, trendPoints } from './dashboardData'
 
-const props = defineProps<{ data: Dashboard; loading?: boolean }>()
+const props = defineProps<{ data: Dashboard; loading?: boolean; manager?: boolean }>()
 const emit = defineEmits<{
   reload: []
   navigate: [tab: 'public' | 'admin' | 'versions']

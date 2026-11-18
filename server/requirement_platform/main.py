@@ -419,21 +419,25 @@ def list_jobs(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     } for row in rows])
 
 
-@app.get("/api/admin/dashboard")
-def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
-    """总览看板数据。原有字段保持不变，新增维度均为可选增量字段。"""
-    not_deleted = Requirement.deleted_at.is_(None)
-    base = db.query(Requirement).filter(not_deleted)
+def _dashboard_data(db: Session, *, public_only: bool) -> dict:
+    """总览看板数据。原有字段保持不变，新增维度均为可选增量字段。
+
+    public_only=True 时仅统计公开需求，供未登录访客查看，不泄露私有需求信息。
+    """
+    conditions = [Requirement.deleted_at.is_(None)]
+    if public_only:
+        conditions.append(Requirement.visibility == "public")
+    base = db.query(Requirement).filter(*conditions)
 
     def breakdown(column):
-        rows = db.query(column, func.count(Requirement.id)).filter(not_deleted).group_by(column).all()
+        rows = db.query(column, func.count(Requirement.id)).filter(*conditions).group_by(column).all()
         return {str(key or "unknown"): count for key, count in rows}
 
     status_rows = db.query(Requirement.status, func.count(Requirement.id)).filter(
-        not_deleted
+        *conditions
     ).group_by(Requirement.status).all()
     type_rows = db.query(Requirement.type, func.count(Requirement.id)).filter(
-        not_deleted
+        *conditions
     ).group_by(Requirement.type).all()
     now = datetime.now(timezone.utc)
     since_7 = now - timedelta(days=7)
@@ -445,7 +449,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     trend_rows = db.query(
         day_expr.label("day"), func.count(Requirement.id)
     ).filter(
-        not_deleted, Requirement.created_at >= since_90
+        *conditions, Requirement.created_at >= since_90
     ).group_by(day_expr).all()
     trend_by_day = {day: count for day, count in trend_rows}
     daily_new_90d = []
@@ -457,7 +461,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     type_trend_rows = db.query(
         day_expr.label("day"), Requirement.type, func.count(Requirement.id)
     ).filter(
-        not_deleted, Requirement.created_at >= since_90
+        *conditions, Requirement.created_at >= since_90
     ).group_by(day_expr, Requirement.type).all()
     type_by_day: dict[str, dict[str, int]] = {}
     for day, kind, count in type_trend_rows:
@@ -474,7 +478,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     contributors_rows = db.query(
         Requirement.created_by, User.username, func.count(Requirement.id)
     ).join(User, User.id == Requirement.created_by).filter(
-        not_deleted, Requirement.created_by.is_not(None)
+        *conditions, Requirement.created_by.is_not(None)
     ).group_by(Requirement.created_by, User.username).all()
     contributors = [{
         "user_id": user_id,
@@ -483,14 +487,16 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     } for user_id, username, count in contributors_rows]
     contributors.sort(key=lambda item: (-item["count"], item["name"]))
     anonymous_count = base.filter(Requirement.created_by.is_(None)).count()
-    followers = db.query(func.count(RequirementFollower.id)).scalar() or 0
+    followers = db.query(func.count(RequirementFollower.id)).join(
+        Requirement, Requirement.id == RequirementFollower.requirement_id
+    ).filter(*conditions).scalar() or 0
 
     # 关注度维度：被关注最多的需求
     follower_expr = func.count(RequirementFollower.id)
     followed_rows = db.query(
         Requirement.id, Requirement.public_number, Requirement.title, follower_expr
     ).join(RequirementFollower, RequirementFollower.requirement_id == Requirement.id).filter(
-        not_deleted
+        *conditions
     ).group_by(Requirement.id, Requirement.public_number, Requirement.title).order_by(
         follower_expr.desc()
     ).limit(5).all()
@@ -504,7 +510,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
     done_statuses = {"released", "published", "completed"}
     terminal_statuses = done_statuses | {"closed", "rejected", "duplicate", "withdrawn", "cancelled"}
     resolved_rows = db.query(Requirement.created_at, Requirement.updated_at).filter(
-        not_deleted, Requirement.status.in_(done_statuses)
+        *conditions, Requirement.status.in_(done_statuses)
     ).all()
     durations = []
     for created, updated in resolved_rows:
@@ -518,7 +524,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
             durations.append(days)
     avg_resolution_days = round(sum(durations) / len(durations), 1) if durations else None
 
-    return ok({
+    return {
         "generated_at": now.isoformat(),
         "total": base.count(),
         "new_last_7_days": base.filter(Requirement.created_at >= since_7).count(),
@@ -534,7 +540,7 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
         "by_visibility": breakdown(Requirement.visibility),
         "contributor_count": len(contributors) + (1 if anonymous_count else 0),
         "active_contributors_30d": db.query(func.count(func.distinct(Requirement.created_by))).filter(
-            not_deleted, Requirement.created_by.is_not(None), Requirement.created_at >= since_30
+            *conditions, Requirement.created_by.is_not(None), Requirement.created_at >= since_30
         ).scalar() or 0,
         "follower_count": followers,
         "released_last_30d": base.filter(
@@ -549,4 +555,16 @@ def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
         "daily_new_by_type_90d": daily_new_by_type_90d,
         "top_contributors": contributors[:8],
         "top_followed": top_followed,
-    })
+    }
+
+
+@app.get("/api/admin/dashboard")
+def dashboard(_actor: User = Depends(manager), db: Session = Depends(get_db)):
+    """管理端总览看板：包含私有需求在内的全量口径。"""
+    return ok(_dashboard_data(db, public_only=False))
+
+
+@app.get("/api/dashboard")
+def public_dashboard(db: Session = Depends(get_db)):
+    """公开总览看板：无需登录，仅统计公开需求。"""
+    return ok(_dashboard_data(db, public_only=True))

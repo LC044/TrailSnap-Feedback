@@ -482,6 +482,33 @@ def test_batch_update_closed_filter_and_dashboard_charts():
         assert isinstance(dashboard["top_followed"], list)
 
 
+def test_public_dashboard_is_anonymous_and_public_only():
+    """公开看板无需登录，且只统计公开需求，不泄露私有需求信息。"""
+    with TestClient(app) as client:
+        owner = client.post(
+            "/api/auth/login", json={"identifier": "owner@example.com", "password": "password123"}
+        ).json()["data"]
+        viewer = client.post(
+            "/api/auth/login", json={"identifier": "viewer@example.com", "password": "password123"}
+        ).json()["data"]
+        client.post(
+            "/api/requirements", headers=auth(viewer["token"]),
+            json={"type": "bug", "title": "看板私有需求", "description": "私有需求不应出现在公开看板统计中。", "visibility": "private"},
+        )
+
+        anonymous = client.get("/api/dashboard")
+        assert anonymous.status_code == 200, anonymous.text
+        public_data = anonymous.json()["data"]
+        assert public_data["total"] == sum(public_data["by_status"].values())
+        assert public_data["by_visibility"] == {"public": public_data["total"]}
+        assert all(item["title"] != "看板私有需求" for item in public_data["top_followed"])
+
+        admin_data = client.get("/api/admin/dashboard", headers=auth(owner["token"])).json()["data"]
+        assert admin_data["total"] > public_data["total"]
+
+        assert client.get("/api/admin/dashboard").status_code in (401, 403)
+
+
 def test_manager_imports_github_issues(monkeypatch):
     with TestClient(app) as client:
         owner = client.post(

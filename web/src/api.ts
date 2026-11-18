@@ -154,6 +154,7 @@ export const api = {
   closeGithubIssue: (id: string, reason: string) => call<Requirement>('post', `/requirements/${id}/github/close`, { reason }),
   syncGithubIssues: () => call<{ created: number; updated: number; skipped: number; total: number }>('post', '/admin/github/issues/sync'),
   dashboard: () => call<Dashboard>('get', '/admin/dashboard'),
+  publicDashboard: () => call<Dashboard>('get', '/dashboard'),
   batches: () => call<Batch[]>('get', '/versions'),
   createBatch: (data: BatchInput) => call<Batch>('post', '/versions', data),
   updateBatch: (batchId: string, data: Partial<BatchInput>) => call<Batch>('patch', `/versions/${batchId}`, data),

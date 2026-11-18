@@ -7,10 +7,11 @@ export type AppTab = 'public' | 'dashboard' | 'submit' | 'assistant' | 'mine' | 
 // records are authoritative for URLs and browser history during that migration.
 const RouteTarget = { render: () => null }
 const tabRoutes: Array<[AppTab, string]> = [
-  ['public', '/'],
+  // AI 助手是默认首页；公开需求列表保留独立路径，旧链接可用 ?view=public 兜底。
+  ['assistant', '/'],
+  ['public', '/requirements'],
   ['dashboard', '/dashboard'],
   ['submit', '/requirements/new'],
-  ['assistant', '/assistant'],
   ['mine', '/requirements/mine'],
   ['admin', '/admin/requirements'],
   ['versions', '/versions'],

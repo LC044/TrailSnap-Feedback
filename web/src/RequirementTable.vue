@@ -79,7 +79,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElButton, ElDropdown, ElDropdownItem, ElDropdownMenu, ElIcon, ElPagination } from 'element-plus'
 import { Monitor, MagicStick, Lightning, MoreFilled, Tickets } from '@element-plus/icons-vue'
 import type { Requirement } from './api'
@@ -88,10 +88,18 @@ import { avatarColor, formatDate, priorityLabel, statusLabel, typeLabel } from '
 const props = defineProps<{ items: Requirement[]; manager?: boolean; user?: { id: string } | null }>()
 const emit = defineEmits<{ open: [item: Requirement]; action: [payload: { item: Requirement; command: string }] }>()
 
-const pageSize = 8
+// 每页条数随视口高度自适应：高分屏（如 4K）多展示几行，避免底部大片空白。
+// 420px 约为页头、筛选栏、表头/表尾与页面留白之和，76px 为单行高度。
+const pageSize = ref(8)
+const syncPageSize = () => {
+  pageSize.value = Math.min(50, Math.max(8, Math.floor((window.innerHeight - 420) / 76)))
+}
+onMounted(() => { syncPageSize(); window.addEventListener('resize', syncPageSize) })
+onBeforeUnmount(() => window.removeEventListener('resize', syncPageSize))
 const page = ref(1)
 watch(() => props.items, () => { page.value = 1 })
-const pagedItems = computed(() => props.items.slice((page.value - 1) * pageSize, page.value * pageSize))
+watch(pageSize, () => { page.value = Math.min(page.value, Math.max(1, Math.ceil(props.items.length / pageSize.value))) })
+const pagedItems = computed(() => props.items.slice((page.value - 1) * pageSize.value, page.value * pageSize.value))
 
 const typeIcons: Record<string, typeof Monitor> = { feature: Monitor, improvement: MagicStick, bug: Lightning }
 const typeIcon = (type: string) => typeIcons[type] || Tickets

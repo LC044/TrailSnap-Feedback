@@ -20,7 +20,7 @@
     <!-- 移动端：顶部横向导航栏 -->
     <div class="mobile-nav">
       <div class="mobile-bar">
-        <button class="mobile-brand" type="button" aria-label="返回公开需求" @click="go(items[0]?.key ?? 'public')">
+        <button class="mobile-brand" type="button" aria-label="返回首页" @click="go(items[0]?.key ?? 'assistant')">
           <img :src="logoUrl" alt="" />
           <span class="mobile-brand-copy"><strong>行影集</strong><small>需求管理平台</small></span>
         </button>

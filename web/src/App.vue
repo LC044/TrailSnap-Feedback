@@ -45,7 +45,7 @@
         @reload="loadRequirements" @submit="switchTab('submit')" @discuss="router.push({ name: 'requirement-intake' })" @open="openDetail" @action="onRowAction" />
 
       <!-- ============ 管理总览 ============ -->
-      <DashboardPage v-else-if="tab === 'dashboard' && isManager && dashboard" :data="dashboard" :loading="dashboardLoading"
+      <DashboardPage v-else-if="tab === 'dashboard' && dashboard" :data="dashboard" :loading="dashboardLoading" :manager="isManager"
         @reload="loadDashboard" @navigate="switchTab" @open-detail="openDetail" />
 
       <!-- ============ 提交需求 ============ -->
@@ -345,7 +345,7 @@ const emptyRequirementForm = () => ({
 
 const route = useRoute()
 const router = useRouter()
-const tab = ref<Tab>((route.meta.tab as Tab | undefined) || 'public')
+const tab = ref<Tab>((route.meta.tab as Tab | undefined) || 'assistant')
 const navCollapsed = ref(false)
 try { navCollapsed.value = localStorage.getItem('rp_nav_collapsed') === '1' } catch { /* Storage is optional. */ }
 const header = ref<InstanceType<typeof AppHeader> | null>(null)
@@ -401,14 +401,14 @@ const genericMcpConfig = computed(() => JSON.stringify({
 }, null, 2))
 const candidateSelection = reactive<Record<string, string>>({})
 const visibleTabs = computed(() => [
+  { key: 'assistant' as Tab, label: 'AI 助手', icon: MagicStick },
   { key: 'public' as Tab, label: '公开需求', icon: Document },
   { key: 'submit' as Tab, label: '提交需求', icon: EditPen },
-  { key: 'assistant' as Tab, label: 'AI 助手', icon: MagicStick },
   { key: 'mine' as Tab, label: user.value ? '我的需求与本机记录' : '本机提交记录', icon: Collection },
   { key: 'versions' as Tab, label: '版本计划', icon: Flag },
+  { key: 'dashboard' as Tab, label: '总览看板', icon: DataAnalysis },
   { key: 'usage' as Tab, label: 'Token 用量', icon: TrendCharts },
   ...(isManager.value ? [{ key: 'notifications' as Tab, label: '邮件通知', icon: Connection }] : []),
-  ...(isManager.value ? [{ key: 'dashboard' as Tab, label: '总览看板', icon: DataAnalysis }] : []),
   ...(isManager.value ? [{ key: 'admin' as Tab, label: '需求审核', icon: Checked }] : []),
   ...(isManager.value ? [{ key: 'ai-settings' as Tab, label: 'AI 设置', icon: MagicStick }] : []),
   ...(isManager.value ? [{ key: 'integrations' as Tab, label: '集成设置', icon: Connection }] : []),
@@ -421,13 +421,25 @@ function toggleNavigation() {
 }
 
 const plannedStatuses = ['scheduled', 'developing', 'testing', 'release_ready']
-const doneStatuses = ['released', 'published', 'completed']
-const stats = computed(() => ({
-  total: requirements.value.length,
-  planned: requirements.value.filter(item => plannedStatuses.includes(item.status)).length,
-  developing: requirements.value.filter(item => item.status === 'developing').length,
-  done: requirements.value.filter(item => doneStatuses.includes(item.status)).length,
-}))
+// 开发中口径：规格已批准（accepted，交付已授权）+ 开发中（developing）。
+const developingStatuses = ['accepted', 'developing']
+// 已完成口径：交付完成（released/published/completed）+ 已关闭（closed）+ 已拒绝（rejected）。
+const doneStatuses = ['released', 'published', 'completed', 'closed', 'rejected']
+// 统计来自服务端公开口径（仅公开需求、不受列表分页与筛选影响）。
+const publicStatusCounts = ref<Record<string, number>>({})
+async function loadPublicStats() {
+  try { publicStatusCounts.value = (await api.publicDashboard()).by_status } catch { /* 统计失败时保留上一次数据，不阻塞列表。 */ }
+}
+const stats = computed(() => {
+  const counts = publicStatusCounts.value
+  const count = (status: string) => counts[status] || 0
+  return {
+    total: Object.values(counts).reduce((total, value) => total + value, 0),
+    planned: plannedStatuses.reduce((total, status) => total + count(status), 0),
+    developing: developingStatuses.reduce((total, status) => total + count(status), 0),
+    done: doneStatuses.reduce((total, status) => total + count(status), 0),
+  }
+})
 const sortedRequirements = computed(() => {
   const list = [...requirements.value]
   if (sortBy.value === 'updated') list.sort((a, b) => b.updated_at.localeCompare(a.updated_at))
@@ -449,6 +461,7 @@ async function loadRequirements() {
   if (filters.status) p.set('status', filters.status)
   else p.set('include_closed', 'false')
   requirements.value = await api.requirements(`?${p}`)
+  void loadPublicStats()
 }
 async function loadMine() {
   const local = await Promise.allSettled(receipts.receipts.map(item => api.requirementByNumber(item.number)))
@@ -457,9 +470,9 @@ async function loadMine() {
 }
 async function loadAdmin() { if (isManager.value) adminRequirements.value = await api.requirements(adminStatus.value ? `?status=${adminStatus.value}` : '') }
 async function loadDashboard() {
-  if (!isManager.value) return
   dashboardLoading.value = true
-  try { dashboard.value = await api.dashboard() } finally { dashboardLoading.value = false }
+  // 管理员看全量口径，访客只看公开需求口径。
+  try { dashboard.value = await (isManager.value ? api.dashboard() : api.publicDashboard()) } finally { dashboardLoading.value = false }
 }
 async function loadBatches() { batches.value = await api.batches(); if (isManager.value) candidates.value = await api.requirements('?status=candidate&limit=100') }
 async function loadUsers() { if (user.value?.role === 'owner') users.value = await api.users() }
@@ -760,7 +773,7 @@ watch(() => route.fullPath, async () => {
   else {
     detailTarget.value = null
     detailHistory.value = []
-    tab.value = (route.meta.tab as Tab | undefined) || 'public'
+    tab.value = (route.meta.tab as Tab | undefined) || 'assistant'
   }
 })
 
@@ -999,7 +1012,7 @@ async function toggleRole(row: ApiUser) {
 
 function logout() {
   session.clear()
-  tab.value = 'public'
+  void switchTab('assistant')
   void loadRequirements()
 }
 
@@ -1029,7 +1042,7 @@ onMounted(async () => {
     history.replaceState({}, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
   }
   const requestedTab = params.get('view') as Tab | null
-  if (requestedTab && ['public', 'dashboard', 'submit', 'mine', 'admin', 'versions', 'usage', 'integrations', 'ai-settings', 'users'].includes(requestedTab)) tab.value = requestedTab
+  if (requestedTab && ['public', 'dashboard', 'submit', 'assistant', 'mine', 'admin', 'versions', 'usage', 'integrations', 'ai-settings', 'users'].includes(requestedTab)) tab.value = requestedTab
   const requestedType = params.get('type')
   if (requestedType && ['bug', 'improvement', 'feature'].includes(requestedType)) requirementForm.type = requestedType
   if (tab.value === 'submit') {
@@ -1039,7 +1052,7 @@ onMounted(async () => {
     } catch { /* Invalid or unavailable drafts must not block feedback. */ }
   }
   if (!user.value) await restoreSession()
-  if ((['admin', 'dashboard', 'integrations', 'ai-settings'].includes(tab.value) && !isManager.value) || (tab.value === 'users' && user.value?.role !== 'owner')) tab.value = 'public'
+  if ((['admin', 'integrations', 'ai-settings'].includes(tab.value) && !isManager.value) || (tab.value === 'users' && user.value?.role !== 'owner')) tab.value = 'assistant'
   await Promise.all([loadRequirements(), loadBatches()])
   if (tab.value === 'mine') await loadMine()
   if (tab.value === 'admin') await loadAdmin()

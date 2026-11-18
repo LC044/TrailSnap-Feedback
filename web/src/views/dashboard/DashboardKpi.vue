@@ -47,7 +47,7 @@ type KpiCard = {
   spark: number[]; bar?: number; tab?: NavTab; badge?: string; badgeTone?: 'up' | 'down'
 }
 
-const props = defineProps<{ data: Dashboard; points: TrendPoint[] }>()
+const props = defineProps<{ data: Dashboard; points: TrendPoint[]; manager?: boolean }>()
 const emit = defineEmits<{ navigate: [tab: NavTab] }>()
 
 const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
@@ -72,8 +72,8 @@ const cards = computed<KpiCard[]>(() => [
     badgeTone: (changePct.value ?? 0) >= 0 ? 'up' : 'down',
   },
   {
-    key: 'pending', label: '待处理', value: props.data.pending_review, tab: 'admin',
-    hint: `占全部需求 ${pct(props.data.pending_review).toFixed(1)}% · 建议优先审核`,
+    key: 'pending', label: '待处理', value: props.data.pending_review, tab: props.manager ? 'admin' : 'public',
+    hint: `占全部需求 ${pct(props.data.pending_review).toFixed(1)}%${props.manager ? ' · 建议优先审核' : ''}`,
     icon: Timer, tone: 'amber', color: palette.amber, spark: [], bar: pct(props.data.pending_review),
   },
   {

@@ -1,5 +1,5 @@
 <template>
-  <section>
+  <section class="public-page">
     <div class="page-head public-page-head">
       <div class="page-head-left">
         <div class="page-head-icon"><el-icon :size="26"><Document /></el-icon></div>

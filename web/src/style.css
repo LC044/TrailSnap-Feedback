@@ -178,6 +178,13 @@ a { color: inherit; }
 .table-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 4px 0; flex-wrap: wrap; }
 .table-foot .total { color: var(--rp-text-3); font-size: 13px; }
 
+/* 公开需求页：高视口（如 4K）下卡片撑满剩余高度，分页贴住卡片底部，避免底部大片空白。 */
+.public-page { display: flex; flex-direction: column; }
+.public-page .table-panel { flex: 1; display: flex; flex-direction: column; }
+.public-page .table-panel .table-foot { margin-top: auto; }
+.public-page .table-panel .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+@media (min-width: 861px) { .public-page { min-height: calc(100vh - 158px); } }
+
 /* ---------- 卡片视图(移动端) ---------- */
 .cards { display: grid; gap: 12px; }
 .requirement-card { border: 1px solid var(--rp-border); border-radius: 12px; padding: 16px; background: #fff; }
