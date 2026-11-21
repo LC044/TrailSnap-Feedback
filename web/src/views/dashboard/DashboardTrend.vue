@@ -25,8 +25,8 @@
         @pointermove="onMove" @pointerdown="onMove" @keydown.left.prevent="moveHover(-1)" @keydown.right.prevent="moveHover(1)" @keydown.esc="hoverIndex = null">
         <defs>
           <linearGradient id="rp-trend-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#2563eb" stop-opacity=".24" />
-            <stop offset="100%" stop-color="#2563eb" stop-opacity="0" />
+            <stop offset="0%" stop-color="var(--primary)" stop-opacity=".24" />
+            <stop offset="100%" stop-color="var(--primary)" stop-opacity="0" />
           </linearGradient>
         </defs>
         <g>
@@ -45,7 +45,7 @@
         </template>
         <template v-else-if="mode === 'bar'">
           <rect v-for="bar in bars" :key="bar.key" :x="bar.x" :y="bar.y" :width="barWidth" :height="bar.h" rx="3"
-            class="trend-bar" :class="{ dim: hoverIndex !== null && hoverIndex !== bar.index }" fill="#2563eb" />
+            class="trend-bar" :class="{ dim: hoverIndex !== null && hoverIndex !== bar.index }" fill="var(--primary)" />
         </template>
         <template v-else>
           <rect v-for="seg in stackBars" :key="seg.key" :x="seg.x" :y="seg.y" :width="barWidth" :height="seg.h" rx="2"
@@ -233,55 +233,79 @@ function exportCsv() {
 </script>
 
 <style scoped>
-.trend-card { margin-bottom: 0; min-width: 0; }
+.trend-card { margin-bottom: 0; min-width: 0; padding: 20px 22px 18px; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.card-title h2 { margin: 0; font-size: 17px; }
-.card-title p { margin: 4px 0 0; font-size: 12px; color: var(--rp-text-3); }
+.card-title h2 { margin: 0; font-size: 15.5px; }
+.card-title p { margin: 4px 0 0; font-size: 11.5px; color: var(--ink-4); }
 .card-actions { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.seg { display: inline-flex; padding: 3px; margin-right: 4px; border-radius: 9px; background: #f1f5f9; }
-.seg button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--rp-text-2); font-size: 12px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
-.seg button.active { background: #fff; color: var(--rp-primary); font-weight: 700; box-shadow: 0 1px 4px rgba(15,23,42,.1); }
-.seg button:disabled { opacity: .4; cursor: not-allowed; }
-.seg button:focus-visible { outline: 2px solid var(--rp-primary); outline-offset: 1px; }
-.trend-stats { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 14px 0 6px; font-size: 12px; color: var(--rp-text-3); }
-.trend-stats strong { color: var(--rp-text); font-size: 13px; font-variant-numeric: tabular-nums; }
-.trend-stats strong.up { color: #16a36a; }
-.trend-stats strong.down { color: #dc2626; }
-.trend-stats small { font-size: 11px; }
-.trend-stats .muted { color: #b6c0cf; }
+.seg { margin-right: 4px; }
+.trend-stats {
+  display: flex; flex-wrap: wrap; gap: 6px 18px;
+  margin: 14px 0 8px; font-size: 11.5px; color: var(--ink-4);
+}
+.trend-stats strong { color: var(--ink); font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.trend-stats strong.up { color: var(--success); }
+.trend-stats strong.down { color: var(--danger); }
+.trend-stats small { font-size: 10.5px; }
+.trend-stats .muted { color: var(--ink-5); }
 .trend-wrap { position: relative; min-height: 256px; }
 .trend-svg { display: block; }
-.trend-svg:focus-visible { outline: 2px solid var(--rp-primary); outline-offset: 2px; border-radius: 8px; }
-.trend-svg .gridline { stroke: var(--rp-border); stroke-width: 1; }
-.trend-svg .tick-label { fill: var(--rp-text-3); font-size: 11px; font-variant-numeric: tabular-nums; }
-.trend-svg .trend-line { fill: none; stroke: var(--rp-primary); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.trend-svg .trend-dot { fill: #fff; stroke: var(--rp-primary); stroke-width: 2; }
-.trend-svg .trend-bar, .trend-svg .trend-seg { transition: opacity .15s, fill .15s; }
-.trend-svg .trend-bar:hover { fill: #1d4ed8; }
-.trend-svg .trend-bar.dim { opacity: .38; }
-.trend-svg .crosshair { stroke: #94a3b8; stroke-width: 1; stroke-dasharray: 3 3; }
-.trend-svg .hover-dot { fill: var(--rp-primary); stroke: #fff; stroke-width: 2.5; }
-.chart-tip { position: absolute; z-index: 5; min-width: 116px; pointer-events: none; display: grid; gap: 3px; padding: 8px 10px; border-radius: 10px; background: #0f172a; color: #fff; font-size: 11.5px; box-shadow: 0 8px 20px rgba(15,23,42,.25); }
-.chart-tip strong { font-size: 12px; }
-.chart-tip .tip-total b { font-size: 14px; }
-.chart-tip .tip-row { display: flex; align-items: center; gap: 5px; opacity: .85; }
+.trend-svg:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
+.trend-svg .gridline { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 4; }
+.trend-svg .tick-label { fill: var(--ink-4); font-size: 10.5px; font-variant-numeric: tabular-nums; }
+.trend-svg .trend-line {
+  fill: none; stroke: var(--primary); stroke-width: 2.4;
+  stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 6px 10px color-mix(in srgb, var(--primary) 30%, transparent));
+  animation: draw 1.1s var(--ease-out) both;
+  stroke-dasharray: 2000; stroke-dashoffset: 2000;
+}
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.trend-svg .trend-dot { fill: var(--surface); stroke: var(--primary); stroke-width: 2; }
+.trend-svg .trend-bar, .trend-svg .trend-seg { transition: opacity .15s, filter .15s; }
+.trend-svg .trend-bar:hover { filter: brightness(1.15); }
+.trend-svg .trend-bar.dim { opacity: .35; }
+.trend-svg .crosshair { stroke: var(--ink-4); stroke-width: 1; stroke-dasharray: 3 3; }
+.trend-svg .hover-dot { fill: var(--primary); stroke: var(--surface); stroke-width: 2.5; }
+.chart-tip {
+  position: absolute; z-index: 5; min-width: 120px; pointer-events: none;
+  display: grid; gap: 3px; padding: 9px 11px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--ink) 94%, transparent);
+  color: #fff;
+  font-size: 11.5px;
+  box-shadow: 0 14px 30px -16px rgba(8, 12, 30, .8);
+  backdrop-filter: blur(8px);
+}
+.chart-tip strong { font-size: 12px; font-weight: 650; color: rgba(255, 255, 255, .72); }
+.chart-tip .tip-total b { font-size: 15px; color: #fff; }
+.chart-tip .tip-row { display: flex; align-items: center; gap: 5px; opacity: .88; }
 .chart-tip .tip-row i { width: 7px; height: 7px; border-radius: 2px; }
-.chart-empty { margin: 90px 0; text-align: center; color: var(--rp-text-3); font-size: 13px; }
-.chart-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 4px; }
-.legend-item { display: inline-flex; align-items: center; gap: 5px; padding: 3px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--rp-text-2); font-size: 12px; cursor: pointer; }
-.legend-item:hover { background: var(--rp-primary-soft); }
-.legend-item.off { opacity: .4; text-decoration: line-through; }
-.legend-swatch { width: 9px; height: 9px; border-radius: 3px; }
-.legend-hint { margin-left: auto; color: #b6c0cf; font-size: 11px; }
-.trend-table-wrap { max-height: 262px; overflow: auto; }
-.trend-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-.trend-table th, .trend-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--rp-border); }
-.trend-table th { position: sticky; top: 0; z-index: 1; background: #fff; color: var(--rp-text-3); font-weight: 600; }
-.trend-table td { color: var(--rp-text-2); font-variant-numeric: tabular-nums; }
-.trend-table td:first-child { color: var(--rp-text); }
+.chart-empty { margin: 90px 0; text-align: center; color: var(--ink-4); font-size: 12.5px; }
+.chart-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 6px; }
+.legend-item {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 7px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--ink-2); font-size: 11.5px; cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.legend-item:hover { background: var(--primary-soft); }
+.legend-item.off { opacity: .38; text-decoration: line-through; }
+.legend-swatch { width: 8px; height: 8px; border-radius: 2px; }
+.legend-hint { margin-left: auto; color: var(--ink-5); font-size: 10.5px; }
+.trend-table-wrap { max-height: 262px; overflow: auto; border-radius: 10px; border: 1px solid var(--line); }
+.trend-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.trend-table th, .trend-table td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.trend-table th { position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--ink-3); font-weight: 600; }
+.trend-table td { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.trend-table td:first-child { color: var(--ink); }
 @media (max-width: 720px) {
+  .trend-card { padding: 16px; }
   .card-actions { width: 100%; }
   .seg { margin-right: auto; }
   .legend-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .trend-svg .trend-line { animation: none; stroke-dasharray: none; stroke-dashoffset: 0; }
 }
 </style>

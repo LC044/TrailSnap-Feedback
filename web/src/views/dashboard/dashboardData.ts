@@ -1,17 +1,18 @@
 import type { Dashboard } from '../../api'
 import { priorityLabels, severityLabels, statusLabels, typeLabels } from '../../labels'
 
+/** 颜色全部取自设计令牌，随主题切换自动更新（SVG 的 fill/stroke 也支持 var()）。 */
 export const palette = {
-  blue: '#2563eb',
-  indigo: '#6366f1',
-  violet: '#8b5cf6',
-  cyan: '#0891b2',
-  teal: '#0f9f95',
-  green: '#16a36a',
-  amber: '#f59e0b',
-  orange: '#ea580c',
-  red: '#ef4444',
-  slate: '#94a3b8',
+  blue: 'var(--primary)',
+  indigo: 'var(--primary-bright)',
+  violet: 'var(--violet)',
+  cyan: 'var(--cyan)',
+  teal: 'var(--brand-teal)',
+  green: 'var(--success)',
+  amber: 'var(--accent)',
+  orange: 'var(--accent)',
+  red: 'var(--danger)',
+  slate: 'var(--ink-4)',
 }
 
 export const typeMeta: Record<string, { label: string; color: string }> = {

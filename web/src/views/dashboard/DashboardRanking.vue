@@ -60,38 +60,43 @@ function open(number?: number | null) {
 </script>
 
 <style scoped>
-.ranking-card { margin-bottom: 0; min-width: 0; }
+.ranking-card { margin-bottom: 0; min-width: 0; padding: 20px 22px; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.card-title h2 { margin: 0; font-size: 17px; }
-.card-title p { margin: 4px 0 0; font-size: 12px; color: var(--rp-text-3); }
-.seg { display: inline-flex; padding: 3px; border-radius: 9px; background: #f1f5f9; }
-.seg button { min-height: 26px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--rp-text-2); font-size: 12px; cursor: pointer; transition: background .15s, color .15s, box-shadow .15s; }
-.seg button.active { background: #fff; color: var(--rp-primary); font-weight: 700; box-shadow: 0 1px 4px rgba(15,23,42,.1); }
-.seg button:disabled { opacity: .4; cursor: not-allowed; }
-.seg button:focus-visible { outline: 2px solid var(--rp-primary); outline-offset: 1px; }
+.card-title h2 { margin: 0; font-size: 15.5px; }
+.card-title p { margin: 4px 0 0; font-size: 11.5px; color: var(--ink-4); }
 .rank-list { margin-top: 12px; }
-.rank-row { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 42px; padding: 5px 4px; border: 0; border-bottom: 1px solid #f4f7fb; background: transparent; text-align: left; }
+.rank-row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  min-height: 42px; padding: 6px 5px;
+  border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; text-align: left;
+}
 .rank-row:last-of-type { border-bottom: 0; }
-.followed-row { cursor: pointer; border-radius: 8px; }
-.followed-row:hover:not(:disabled) { background: #f8fafc; }
-.followed-row:disabled { cursor: default; opacity: .65; }
-.followed-row:focus-visible { outline: 2px solid var(--rp-primary); outline-offset: 1px; }
-.rank-badge { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: none; border-radius: 6px; background: #f1f5f9; color: var(--rp-text-3); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.rank-badge.rank-1 { background: #fff3d6; color: #b45309; }
-.rank-badge.rank-2 { background: #eef2f7; color: #64748b; }
-.rank-badge.rank-3 { background: #fdeee2; color: #c2683a; }
-.rank-name { min-width: 0; width: 88px; flex: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--rp-text-2); }
-.rank-track { flex: 1; min-width: 24px; height: 8px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
-.rank-track i { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #60a5fa, #2563eb); transition: width .45s ease; }
-.rank-row strong { width: 32px; flex: none; text-align: right; font-size: 12.5px; color: var(--rp-text); font-variant-numeric: tabular-nums; }
-.followed-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12.5px; color: var(--rp-text); }
-.req-number { flex: none; padding: 2px 6px; border-radius: 5px; background: var(--rp-primary-soft); color: var(--rp-primary); font-size: 10.5px; font-weight: 600; }
-.followers { display: inline-flex; align-items: center; gap: 3px; width: 38px; flex: none; justify-content: flex-end; color: var(--rp-text-2); font-size: 12px; font-variant-numeric: tabular-nums; }
-.followers .el-icon { color: #f59e0b; }
-.rank-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--rp-border); font-size: 11.5px; color: var(--rp-text-3); }
-.rank-foot b { color: var(--rp-text); font-variant-numeric: tabular-nums; }
-.chart-empty { margin: 24px 0; text-align: center; color: var(--rp-text-3); font-size: 12.5px; }
+.followed-row { cursor: pointer; border-radius: 9px; }
+.followed-row:hover:not(:disabled) { background: var(--surface-2); }
+.followed-row:disabled { cursor: default; opacity: .6; }
+.rank-badge {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 21px; height: 21px; border-radius: 7px;
+  background: var(--surface-3); color: var(--ink-4);
+  font-size: 10.5px; font-weight: 750; font-variant-numeric: tabular-nums;
+}
+.rank-badge.rank-1 { background: linear-gradient(140deg, #ffe6a8, #f4c25a); color: #7a4a06; box-shadow: 0 3px 8px -4px rgba(220, 160, 40, .9); }
+.rank-badge.rank-2 { background: linear-gradient(140deg, #eef2f8, #d5dce6); color: #55617a; }
+.rank-badge.rank-3 { background: linear-gradient(140deg, #ffe6d6, #f3c6a3); color: #8a4d22; }
+.rank-name { min-width: 0; width: 86px; flex: none; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--ink-2); }
+.rank-track { flex: 1; min-width: 24px; height: 7px; border-radius: 99px; background: var(--surface-3); overflow: hidden; }
+.rank-track i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--primary-bright), var(--brand-teal)); transition: width .55s var(--ease); }
+.rank-row strong { width: 30px; flex: none; text-align: right; font-size: 12px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.followed-title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 12px; color: var(--ink); }
+.req-number { flex: none; padding: 1px 6px; border-radius: 5px; background: var(--surface-3); color: var(--ink-3); font-size: 10px; font-weight: 600; }
+.followers { display: inline-flex; align-items: center; gap: 3px; width: 38px; flex: none; justify-content: flex-end; color: var(--ink-2); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.followers .el-icon { color: var(--accent); }
+.rank-foot { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--ink-4); }
+.rank-foot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.chart-empty { margin: 24px 0; text-align: center; color: var(--ink-4); font-size: 12px; }
 @media (max-width: 720px) {
+  .ranking-card { padding: 16px; }
   .rank-name { width: 72px; }
   .req-number { display: none; }
 }

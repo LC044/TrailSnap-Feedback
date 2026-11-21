@@ -2,9 +2,14 @@
   <section>
     <div class="page-head">
       <div class="page-head-left">
-        <div><h1>AI 模型设置</h1><p class="sub">集中管理模型连接，并按任务配置主模型与备用模型。</p></div>
+        <div class="page-head-icon"><el-icon :size="23"><MagicStick /></el-icon></div>
+        <div>
+          <h1>AI 模型设置</h1>
+          <p class="sub">集中管理模型连接，并按任务配置主模型与备用模型。</p>
+          <p class="desc">密钥加密存储，页面不回显；修改后新的分析任务立即生效。</p>
+        </div>
       </div>
-      <el-button :loading="loading" @click="load">刷新</el-button>
+      <div class="page-head-actions"><el-button :loading="loading" @click="load">刷新</el-button></div>
     </div>
 
     <el-alert v-if="settings?.legacy_environment_configured" type="info" :closable="false" show-icon title="检测到环境变量兼容配置">
@@ -98,6 +103,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { MagicStick } from '@element-plus/icons-vue'
 import AIQuotaSettings from './components/AIQuotaSettings.vue'
 import AIUsageStatistics from './components/AIUsageStatistics.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -185,8 +191,8 @@ onMounted(load)
 </script>
 
 <style scoped>
-.page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:20px; }.page-head h1 { margin:0; }.sub { color:var(--rp-text-2); }
-.settings-block { margin-top:18px; padding:20px; }.settings-block h2 { margin:0 0 14px; font-size:18px; }
+.sub { color:var(--ink-3); }
+.settings-block { margin-top:18px; padding:20px; }.settings-block h2 { margin:0 0 14px; font-size:16px; }
 .connection-list { display:grid; gap:16px; }.connection-grid { display:grid; grid-template-columns:1fr 2fr 1.5fr 150px; gap:12px; }
 .block-head,.models-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }.block-head h2,.models-head h3 { margin:0; }.block-head p,.models-head span,.route-help,.route-row p { color:var(--rp-text-3); font-size:13px; }
 .actions,.row-actions { display:flex; flex-wrap:wrap; gap:8px; }.models { margin-top:20px; border-top:1px solid var(--rp-border); padding-top:16px; }

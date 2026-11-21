@@ -1,9 +1,11 @@
 <template>
   <div class="app-shell" :class="{ 'nav-collapsed': navCollapsed, 'chat-shell': route.name === 'requirement-intake' || route.name === 'requirement-conversation' || tab === 'assistant' }">
-    <AppHeader ref="header" :items="visibleTabs" :active="tab" :collapsed="navCollapsed" :user="user"
-      @navigate="switchTab" @notification="onNotification" @login="authDialog = true" @toggle="toggleNavigation" @user-command="onUserCommand" />
+    <AppHeader ref="header" :items="visibleTabs" :active="tab" :collapsed="navCollapsed" :user="user" :badges="navBadges"
+      @navigate="switchTab" @notification="onNotification" @login="authDialog = true" @toggle="toggleNavigation" @user-command="onUserCommand" @command="paletteOpen = true" />
 
     <main class="main">
+      <Transition name="view" mode="out-in">
+        <div :key="viewKey" class="view-root" :class="{ 'view-chat': isChatView }">
       <!-- ============ 需求详情页 ============ -->
       <IntakePage v-if="route.name === 'requirement-intake' || tab === 'assistant'" />
       <ConversationPage v-else-if="route.name === 'requirement-conversation'" :key="String(route.params.number)" :number="Number(route.params.number)" />
@@ -41,39 +43,148 @@
       </section>
 
       <PublicRequirementsPage v-else-if="tab === 'public'" :stats="stats" :filters="filters" :status-options="statusOptions"
-        v-model:sort-by="sortBy" :items="sortedRequirements" :manager="isManager" :user="user"
+        v-model:sort-by="sortBy" :items="sortedRequirements" :manager="isManager" :user="user" :loading="listLoading"
         @reload="loadRequirements" @submit="switchTab('submit')" @discuss="router.push({ name: 'requirement-intake' })" @open="openDetail" @action="onRowAction" />
 
       <!-- ============ 管理总览 ============ -->
       <DashboardPage v-else-if="tab === 'dashboard' && dashboard" :data="dashboard" :loading="dashboardLoading" :manager="isManager"
         @reload="loadDashboard" @navigate="switchTab" @open-detail="openDetail" />
+      <section v-else-if="tab === 'dashboard'" class="sk-page" aria-busy="true" aria-label="正在加载看板">
+        <div class="sk-page-head">
+          <span class="sk sk-icon"></span>
+          <div><span class="sk sk-title"></span><span class="sk sk-sub"></span></div>
+        </div>
+        <div class="sk-grid">
+          <span v-for="n in 4" :key="n" class="sk sk-card"></span>
+        </div>
+        <div class="sk-grid-2">
+          <span class="sk sk-block"></span>
+          <span class="sk sk-block"></span>
+        </div>
+      </section>
 
       <!-- ============ 提交需求 ============ -->
       <section v-else-if="tab === 'submit'" class="submission-page">
-        <div class="page-head"><div><h1>提交需求</h1><p class="sub">问题、建议，都可以告诉我们。</p></div><el-button @click="router.push({ name: 'requirement-intake' })">✦ 与 AI 聊聊</el-button></div>
+        <div class="page-head">
+          <div class="page-head-left">
+            <div class="page-head-icon"><el-icon :size="23"><EditPen /></el-icon></div>
+            <div>
+              <h1>提交需求</h1>
+              <p class="sub">问题、建议、想要的功能，都可以告诉我们。</p>
+              <p class="desc">AI 会先行整理，帮助维护者更快理解你的真实场景。</p>
+            </div>
+          </div>
+          <button class="btn-gradient" type="button" @click="router.push({ name: 'requirement-intake' })">
+            <el-icon :size="15"><MagicStick /></el-icon>与 AI 一起整理
+          </button>
+        </div>
+
         <SubmissionResult v-if="submittedRequirement" :requirement="submittedRequirement" :has-receipt="!!receipts.tokenFor(submittedRequirement.id)" @open="openAnalyzedRequirement" @save="saveManagementLink(submittedRequirement)" @continue-a-i="continueWithAI(submittedRequirement)" />
+
         <div class="submit-layout">
           <el-form class="panel submit-form" label-position="top" @submit.prevent="submitRequirement" @paste="handlePaste">
-            <RequirementContact v-model:email="requirementForm.notification_email" v-model:opt-in="requirementForm.notification_opt_in" />
-            <el-form-item label="类型"><el-radio-group v-model="requirementForm.type"><el-radio-button value="bug">问题修复</el-radio-button><el-radio-button value="improvement">体验优化</el-radio-button><el-radio-button value="feature">新功能</el-radio-button></el-radio-group></el-form-item>
-            <el-form-item label="标题" required><el-input v-model="requirementForm.title" maxlength="160" show-word-limit placeholder="一句话说说你的想法（至少 4 字）" /></el-form-item>
-            <el-form-item label="描述" required><el-input v-model="requirementForm.description" type="textarea" :autosize="{ minRows: 4, maxRows: 10 }" maxlength="8000" show-word-limit placeholder="遇到了什么？希望有什么改变？（至少 10 字）" /></el-form-item>
-            <details class="optional-fields"><summary>补充细节 <span>选填</span></summary><div class="optional-body">
-              <el-form-item label="期望结果"><el-input v-model="requirementForm.expected_behavior" type="textarea" :rows="2" maxlength="3000" placeholder="希望如何改进" /></el-form-item>
-              <el-form-item v-if="requirementForm.type === 'bug'" label="复现步骤"><el-input v-model="requirementForm.steps_to_reproduce" type="textarea" :rows="3" maxlength="4000" placeholder="1. 打开… 2. 点击… 3. 出现…" /></el-form-item>
-              <el-form-item label="当前情况"><el-input v-model="requirementForm.current_behavior" type="textarea" :rows="2" maxlength="3000" /></el-form-item>
-              <div class="form-grid"><el-form-item label="影响程度"><el-select v-model="requirementForm.severity"><el-option label="低" value="low" /><el-option label="中" value="medium" /><el-option label="高" value="high" /><el-option label="严重" value="critical" /></el-select></el-form-item><el-form-item label="行影集版本"><el-input v-model="requirementForm.product_version" maxlength="50" placeholder="例如 0.14.1" /></el-form-item></div>
-              <el-form-item v-if="!user" label="昵称"><el-input v-model="requirementForm.submitter_name" maxlength="50" placeholder="如何称呼你" /></el-form-item>
-            </div></details>
-            <details class="optional-fields" :open="pendingFiles.length > 0"><summary>截图与日志 <span>仅本人和管理员可见</span><span v-if="pendingFiles.length">{{ pendingFiles.length }} 个附件</span></summary><div class="optional-body">
-              <el-form-item label="截图或附件"><input ref="fileInput" class="native-file" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.txt,.log,.json,.pdf" @change="selectFiles" /><div class="field-hint">最多 5 个，每个 5MB；支持粘贴截图。</div><div v-if="pendingFiles.length" class="file-list"><div v-for="(file, index) in pendingFiles" :key="`${file.name}-${index}`" class="file-row"><span>{{ file.name }}（{{ formatBytes(file.size) }}）</span><el-button link type="danger" @click="pendingFiles.splice(index, 1)">移除</el-button></div></div></el-form-item>
-              <el-form-item label="错误日志"><el-input v-model="requirementForm.log_text" type="textarea" :rows="3" maxlength="20000" show-word-limit placeholder="粘贴前请移除密码与密钥" /></el-form-item>
-            </div></details>
-            <el-form-item v-if="user" label="公开范围"><el-radio-group v-model="requirementForm.visibility"><el-radio value="public">公开</el-radio><el-radio value="private">仅本人和管理员</el-radio></el-radio-group></el-form-item>
-            <p v-else class="submission-privacy">需求公开展示，邮箱和附件不会公开。</p>
-            <div class="actions"><el-button type="primary" size="large" :icon="Promotion" :loading="busy" native-type="submit">提交需求</el-button><el-button size="large" @click="saveDraft">保存草稿</el-button></div>
+            <section class="form-section">
+              <h2 class="form-section-title"><span>01</span>这是什么类型</h2>
+              <div class="type-cards" role="radiogroup" aria-label="需求类型">
+                <button v-for="option in submitTypes" :key="option.value" type="button" role="radio"
+                  :aria-checked="requirementForm.type === option.value" class="type-card"
+                  :class="[option.value, { active: requirementForm.type === option.value }]"
+                  @click="requirementForm.type = option.value">
+                  <span class="tc-ico"><el-icon :size="19"><component :is="option.icon" /></el-icon></span>
+                  <span class="tc-copy"><strong>{{ option.label }}</strong><small>{{ option.hint }}</small></span>
+                  <span class="tc-check" aria-hidden="true"><el-icon :size="12"><Check /></el-icon></span>
+                </button>
+              </div>
+            </section>
+
+            <section class="form-section">
+              <h2 class="form-section-title"><span>02</span>说说你的想法</h2>
+              <el-form-item label="标题" required>
+                <el-input v-model="requirementForm.title" maxlength="160" show-word-limit size="large" placeholder="一句话说清你希望改变什么（至少 4 字）" />
+              </el-form-item>
+              <el-form-item label="详细描述" required>
+                <el-input v-model="requirementForm.description" type="textarea" :autosize="{ minRows: 5, maxRows: 14 }" maxlength="8000" show-word-limit placeholder="在什么场景下遇到了什么问题？你期待怎样的结果？补充截图、设备或版本会更容易定位。" />
+              </el-form-item>
+            </section>
+
+            <details class="optional-fields">
+              <summary><span class="opt-ico"><el-icon :size="14"><DocumentAdd /></el-icon></span>补充细节<span class="opt-tag">选填</span></summary>
+              <div class="optional-body">
+                <el-form-item label="期望结果"><el-input v-model="requirementForm.expected_behavior" type="textarea" :rows="2" maxlength="3000" placeholder="希望如何改进" /></el-form-item>
+                <el-form-item v-if="requirementForm.type === 'bug'" label="复现步骤"><el-input v-model="requirementForm.steps_to_reproduce" type="textarea" :rows="3" maxlength="4000" placeholder="1. 打开… 2. 点击… 3. 出现…" /></el-form-item>
+                <el-form-item label="当前情况"><el-input v-model="requirementForm.current_behavior" type="textarea" :rows="2" maxlength="3000" /></el-form-item>
+                <div class="form-grid"><el-form-item label="影响程度"><el-select v-model="requirementForm.severity"><el-option label="低" value="low" /><el-option label="中" value="medium" /><el-option label="高" value="high" /><el-option label="严重" value="critical" /></el-select></el-form-item><el-form-item label="行影集版本"><el-input v-model="requirementForm.product_version" maxlength="50" placeholder="例如 0.14.1" /></el-form-item></div>
+                <el-form-item v-if="!user" label="昵称"><el-input v-model="requirementForm.submitter_name" maxlength="50" placeholder="如何称呼你" /></el-form-item>
+              </div>
+            </details>
+
+            <details class="optional-fields" :open="pendingFiles.length > 0">
+              <summary><span class="opt-ico"><el-icon :size="14"><Picture /></el-icon></span>截图与日志<span class="opt-tag">仅本人和管理员可见</span><span v-if="pendingFiles.length" class="opt-count">{{ pendingFiles.length }} 个附件</span></summary>
+              <div class="optional-body">
+                <el-form-item label="截图或附件">
+                  <label class="dropzone">
+                    <input ref="fileInput" class="native-file" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.txt,.log,.json,.pdf" @change="selectFiles" />
+                    <el-icon :size="20"><UploadFilled /></el-icon>
+                    <span>拖入或点击选择文件，也支持直接粘贴截图</span>
+                    <small>最多 5 个，每个 5MB · PNG / JPG / WEBP / TXT / LOG / JSON / PDF</small>
+                  </label>
+                  <div v-if="pendingFiles.length" class="file-list">
+                    <div v-for="(file, index) in pendingFiles" :key="`${file.name}-${index}`" class="file-row">
+                      <el-icon :size="14"><Document /></el-icon>
+                      <span>{{ file.name }}</span>
+                      <small>{{ formatBytes(file.size) }}</small>
+                      <el-button link type="danger" @click="pendingFiles.splice(index, 1)">移除</el-button>
+                    </div>
+                  </div>
+                </el-form-item>
+                <el-form-item label="错误日志"><el-input v-model="requirementForm.log_text" type="textarea" :rows="3" maxlength="20000" show-word-limit placeholder="粘贴前请移除密码与密钥" /></el-form-item>
+              </div>
+            </details>
+
+            <section class="form-section">
+              <h2 class="form-section-title"><span>03</span>如何跟进</h2>
+              <RequirementContact v-model:email="requirementForm.notification_email" v-model:opt-in="requirementForm.notification_opt_in" />
+              <el-form-item v-if="user" label="公开范围">
+                <el-radio-group v-model="requirementForm.visibility">
+                  <el-radio-button value="public">公开</el-radio-button>
+                  <el-radio-button value="private">仅本人和管理员</el-radio-button>
+                </el-radio-group>
+              </el-form-item>
+              <p v-else class="submission-privacy"><el-icon :size="13"><Lock /></el-icon>需求公开展示，邮箱和附件不会公开。</p>
+            </section>
+
+            <div class="submit-actions">
+              <el-button type="primary" size="large" :icon="Promotion" :loading="busy" native-type="submit">提交需求</el-button>
+              <el-button size="large" @click="saveDraft">保存草稿</el-button>
+              <span class="submit-hint">提交后仍可补充信息</span>
+            </div>
           </el-form>
-          <aside class="submission-aside"><div class="side-card"><h3>一起让行影集更好</h3><ol class="submission-flow"><li><span>1</span><div>提交想法<small>表单填写，或与 AI 讨论</small></div></li><li><span>2</span><div>一起完善<small>确认细节，评估方案</small></div></li><li><span>3</span><div>关注进展<small>实现与发版通知</small></div></li></ol><el-button plain @click="router.push({ name: 'requirement-intake' })">✦ 让 AI 帮我整理</el-button></div></aside>
+
+          <aside class="submission-aside">
+            <div class="side-card aside-ai">
+              <div class="aside-ai-orb"><el-icon :size="19"><MagicStick /></el-icon></div>
+              <h3>不确定怎么写？</h3>
+              <p>描述你的使用场景，AI 会追问细节，并实时整理成一份可编辑的需求单。</p>
+              <button class="btn-gradient" type="button" style="width:100%" @click="router.push({ name: 'requirement-intake' })">让 AI 帮我整理</button>
+            </div>
+            <div class="side-card">
+              <h3>写成这样更容易被采纳</h3>
+              <ul class="aside-tips">
+                <li><span>场景</span>在做什么时遇到了这个问题</li>
+                <li><span>结果</span>期待看到什么变化</li>
+                <li><span>证据</span>截图、日志、复现步骤</li>
+              </ul>
+            </div>
+            <div class="side-card">
+              <h3>接下来会发生什么</h3>
+              <ol class="mini-trail">
+                <li><i></i><div><strong>提交</strong><small>需求进入公开列表</small></div></li>
+                <li><i></i><div><strong>AI 整理</strong><small>后台分析，无需等待</small></div></li>
+                <li><i></i><div><strong>维护者评估</strong><small>可能追问细节</small></div></li>
+                <li><i></i><div><strong>实现与发布</strong><small>订阅后可收到通知</small></div></li>
+              </ol>
+            </div>
+          </aside>
         </div>
       </section>
 
@@ -108,17 +219,22 @@
 
       <!-- ============ 角色管理 ============ -->
       <UserManagementPage v-else-if="tab === 'users' && user?.role === 'owner'" :users="users" @toggle-role="toggleRole" />
+        </div>
+      </Transition>
     </main>
 
     <!-- ============ 页脚 ============ -->
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-brand"><img :src="logoUrl" alt="" />行影集 <span style="font-weight:400">| 让好想法，变成更好的产品</span></div>
+        <div class="footer-brand"><img :src="logoUrl" alt="" />行影集<span style="font-weight:400;opacity:.75">· 让好想法变成更好的产品</span></div>
         <div class="footer-links">
-          <span>软件需求管理平台</span><span class="sep">•</span><a href="https://trailsnap.cn" target="_blank" rel="noopener">开放</a><span class="sep">•</span><a href="https://trailsnap.cn" target="_blank" rel="noopener">更高效</a><span class="sep">•</span><span>一起创造更好的行影集</span>
+          <span>需求管理平台</span><span class="sep">·</span><a href="https://trailsnap.cn" target="_blank" rel="noopener">trailsnap.cn</a><span class="sep">·</span><span>源于社区，用于社区</span>
         </div>
       </div>
     </footer>
+
+    <CommandPalette :open="paletteOpen" :tabs="visibleTabs" :requirements="requirements"
+      @close="paletteOpen = false" @navigate="onPaletteNavigate" @open-requirement="openDetail" />
 
     <el-dialog v-model="analysisDialog" title="感谢你参与共创行影集" width="min(94vw, 680px)">
       <p>需求已保存，AI 会在后台分析，无需等待。你也可以现在与 AI 实时沟通，补充使用场景和细节。</p>
@@ -274,10 +390,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import {
-  Checked, Collection, Connection, DataAnalysis, Document, EditPen, Flag,
-  MagicStick, Promotion, Setting, TrendCharts,
+  Check, Checked, Collection, Connection, DataAnalysis, Document, DocumentAdd, EditPen, FirstAidKit, Flag, Lock,
+  MagicStick, Opportunity, Picture, Promotion, Setting, TrendCharts, UploadFilled,
 } from '@element-plus/icons-vue'
 import { ElButton, ElMessage, ElMessageBox } from 'element-plus'
 import { storeToRefs } from 'pinia'
@@ -288,6 +404,7 @@ import SubmissionResult from './SubmissionResult.vue'
 import ConversationPage from './views/conversations/ConversationPage.vue'
 import IntakePage from './views/conversations/IntakePage.vue'
 import RequirementContact from './components/RequirementContact.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import NotificationConfirmPage from './views/notifications/NotificationConfirmPage.vue'
 import NotificationAdminPage from './views/notifications/NotificationAdminPage.vue'
 import { APP_SITE_URL, appUrl } from './runtimeBase'
@@ -348,6 +465,43 @@ const router = useRouter()
 const tab = ref<Tab>((route.meta.tab as Tab | undefined) || 'assistant')
 const navCollapsed = ref(false)
 try { navCollapsed.value = localStorage.getItem('rp_nav_collapsed') === '1' } catch { /* Storage is optional. */ }
+
+/* ---------- 命令面板、视图切换与主题 ---------- */
+const paletteOpen = ref(false)
+const isChatView = computed(() => route.name === 'requirement-intake' || route.name === 'requirement-conversation' || tab.value === 'assistant')
+const viewKey = computed(() => {
+  if (route.name === 'requirement-detail') return `detail-${detailRouteNumber.value ?? 'x'}`
+  if (route.name === 'requirement-conversation') return `conv-${String(route.params.number)}`
+  if (route.name === 'requirement-intake') return 'intake'
+  if (route.name === 'notification-confirm') return 'notice-confirm'
+  return tab.value
+})
+const navBadges = computed(() => {
+  const badges: Record<string, number> = {}
+  const pending = dashboard.value?.pending_review
+  if (pending) badges.admin = pending
+  return badges
+})
+const submitTypes = [
+  { value: 'feature', label: '新功能', hint: '希望多一个能力', icon: Opportunity },
+  { value: 'improvement', label: '体验优化', hint: '让已有功能更顺手', icon: MagicStick },
+  { value: 'bug', label: '问题修复', hint: '某个地方不工作了', icon: FirstAidKit },
+]
+function onPaletteNavigate(target: Tab) { void switchTab(target) }
+function onGlobalKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+  }
+}
+/* 指针跟随的微光：让卡片在高亮时更有质感，纯装饰。 */
+function onPointerMove(event: PointerEvent) {
+  const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-glow]')
+  if (!target) return
+  const rect = target.getBoundingClientRect()
+  target.style.setProperty('--mx', `${event.clientX - rect.left}px`)
+  target.style.setProperty('--my', `${event.clientY - rect.top}px`)
+}
 const header = ref<InstanceType<typeof AppHeader> | null>(null)
 const session = useSessionStore()
 const receipts = useAnonymousReceipts()
@@ -360,6 +514,7 @@ const supplementDialog = ref(false), supplementBody = ref(''), supplementBusy = 
 const supplementTarget = ref<Requirement | null>(null)
 const { user, isManager } = storeToRefs(session)
 const requirements = ref<Requirement[]>([]), myRequirements = ref<Requirement[]>([]), adminRequirements = ref<Requirement[]>([])
+const listLoading = ref(true)
 const batches = ref<Batch[]>([]), users = ref<ApiUser[]>([]), candidates = ref<Requirement[]>([])
 const agentTokens = ref<AgentToken[]>([])
 const dashboard = ref<Dashboard | null>(null), dashboardLoading = ref(false), detailHistory = ref<RequirementHistory[]>([])
@@ -460,7 +615,9 @@ async function loadRequirements() {
   if (filters.type) p.set('type', filters.type)
   if (filters.status) p.set('status', filters.status)
   else p.set('include_closed', 'false')
-  requirements.value = await api.requirements(`?${p}`)
+  listLoading.value = true
+  try { requirements.value = await api.requirements(`?${p}`) }
+  finally { listLoading.value = false }
   void loadPublicStats()
 }
 async function loadMine() {
@@ -762,6 +919,9 @@ async function importEditReceipt(number: number, token: string) {
 }
 watch(() => route.fullPath, async () => {
   const number = route.name === 'requirement-detail' ? Number(route.params.number) : null
+  const metaTab = route.meta.tab as Tab | undefined
+  // 直接打开详情/对话链接时，同步主导航高亮，避免停留在默认页签。
+  if (metaTab && route.name !== 'requirement-intake') tab.value = metaTab
   detailRouteNumber.value = number
   if (number) {
     const token = new URLSearchParams(location.hash.slice(1)).get('edit_token')
@@ -1017,6 +1177,9 @@ function logout() {
 }
 
 onMounted(async () => {
+  // 首次导航完成前 route 可能仍是初始值，这里以当前路由为准修正页签。
+  const initialTab = route.meta.tab as Tab | undefined
+  if (initialTab && route.name !== 'requirement-intake') tab.value = initialTab
   const params = new URLSearchParams(window.location.search)
   if (incomingEditToken && detailRouteNumber.value) {
     await importEditReceipt(detailRouteNumber.value, incomingEditToken)
@@ -1061,46 +1224,12 @@ onMounted(async () => {
   if (tab.value === 'integrations') await loadIntegrations()
   if (detailRouteNumber.value) await loadDetail(detailRouteNumber.value)
   await scrollActiveTab()
+  window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('pointermove', onPointerMove, { passive: true })
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('pointermove', onPointerMove)
 })
 </script>
 
-<style>
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
-.w-full { width: 100%; }
-.status-dialog-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 14px; }
-.status-dialog-title strong { overflow-wrap: anywhere; }
-.github-link { color: var(--rp-primary); font-size: 13.5px; text-decoration: none; }
-.github-link:hover { text-decoration: underline; }
-.integration-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-.integration-card h2 { margin:0 0 12px; font-size:18px; }
-.account-row,.section-title-row { display:flex; align-items:center; gap:12px; justify-content:space-between; }
-.account-row > div { flex:1; }
-.github-avatar { width:44px; height:44px; border-radius:50%; }
-.code-block { display:block; padding:12px; border-radius:8px; background:#f3f4f6; color:#111827; overflow-wrap:anywhere; }
-.mcp-guide h2 { margin: 0 0 6px; font-size: 18px; }
-.guide-steps { margin: 20px 0; padding-left: 24px; display: grid; gap: 18px; }
-.guide-steps li { padding-left: 4px; }
-.token-created-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.connection-section { margin-bottom: 18px; }
-.connection-section h3 { margin: 0 0 6px; font-size: 15px; }
-.config-fields { margin: 10px 0 0; border: 1px solid var(--rp-border); border-radius: 10px; overflow: hidden; }
-.config-fields > div { display: grid; grid-template-columns: 190px minmax(0, 1fr); border-bottom: 1px solid var(--rp-border); }
-.config-fields > div:last-child { border-bottom: 0; }
-.config-fields dt, .config-fields dd { margin: 0; padding: 10px 12px; font-size: 13px; }
-.config-fields dt { color: var(--rp-text-2); background: #f8fafc; font-weight: 600; }
-.config-fields dd { color: var(--rp-text); overflow-wrap: anywhere; }
-.guide-steps p { margin: 6px 0 10px; color: var(--rp-text-2); line-height: 1.65; font-size: 13.5px; }
-.guide-steps code { font-size: 12.5px; }
-.mcp-code { margin: 10px 0; overflow-x: auto; overflow-wrap: normal; white-space: pre; }
-@media (prefers-color-scheme: dark) { .code-block { background:#1f2937; color:#f3f4f6; } }
-@media (max-width: 720px) {
-  .form-grid { grid-template-columns: 1fr; }
-  .integration-grid { grid-template-columns:1fr; }
-  .account-row,.section-title-row { align-items:flex-start; flex-wrap:wrap; }
-  .mcp-guide .section-title-row { display: grid; }
-  .guide-steps { padding-left: 20px; }
-  .config-fields > div { grid-template-columns: 1fr; }
-  .config-fields dt { padding-bottom: 4px; }
-  .config-fields dd { padding-top: 4px; }
-}
-</style>

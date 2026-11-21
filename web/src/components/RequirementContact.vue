@@ -15,12 +15,24 @@ defineEmits<{ 'update:email': [value: string]; 'update:optIn': [value: boolean] 
 </script>
 
 <style scoped>
-.contact-panel { border:1px solid var(--rp-border); background:var(--rp-primary-soft); padding:16px; border-radius:12px; margin:0 0 20px; }
-h2 span { font-size:12px; font-weight:400; color:var(--rp-text-3); margin-left:8px; }
-.contact-panel :deep(.el-form-item) { margin-bottom:10px; }
-h2 { font-size:17px; margin:0 0 8px; color:var(--rp-text); }
-p { color:var(--rp-text-2); font-size:14px; line-height:1.6; margin:0 0 16px; }
-small { display:block; color:var(--rp-text-2); line-height:1.6; margin-top:8px; }
-.contact-panel :deep(.el-checkbox) { height:auto; white-space:normal; align-items:flex-start; }
-.contact-panel :deep(.el-checkbox__label) { white-space:normal; line-height:1.5; }
+.contact-panel {
+  position: relative;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 16px 18px;
+  border-radius: 14px;
+  margin: 0 0 20px;
+  overflow: hidden;
+}
+.contact-panel::before {
+  content: "";
+  position: absolute; inset: 0 auto 0 0; width: 3px;
+  background: linear-gradient(180deg, var(--primary), var(--brand-teal));
+}
+.contact-panel h2 { font-size: 13.5px; margin: 0 0 10px; color: var(--ink); }
+.contact-panel h2 span { font-size: 11px; font-weight: 500; color: var(--ink-4); margin-left: 8px; }
+.contact-panel :deep(.el-form-item) { margin-bottom: 10px; }
+.contact-panel :deep(.el-checkbox) { height: auto; white-space: normal; align-items: flex-start; }
+.contact-panel :deep(.el-checkbox__label) { white-space: normal; line-height: 1.5; font-size: 12.5px; }
+small { display: block; color: var(--ink-4); font-size: 11.5px; line-height: 1.6; margin-top: 6px; }
 </style>
