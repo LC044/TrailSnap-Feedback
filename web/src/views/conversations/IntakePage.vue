@@ -197,10 +197,8 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearInterval(timer
 .orb {
   display: grid; place-items: center; flex: none;
   width: 40px; height: 40px; border-radius: 13px;
-  color: #fff; font-size: 19px;
-  background: linear-gradient(135deg, var(--primary), var(--primary-bright) 52%, var(--brand-teal) 120%);
-  box-shadow: 0 12px 26px -14px color-mix(in srgb, var(--primary) 95%, transparent),
-    0 0 0 1px rgba(255, 255, 255, .14) inset;
+  color: var(--primary-deep); font-size: 19px;
+  background: var(--primary-soft);
 }
 .ai-copy { min-width: 0; }
 .ai-copy h1 { margin: 0; font-size: 19px; font-weight: 750; letter-spacing: -.025em; }
@@ -241,26 +239,13 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearInterval(timer
   min-height: 100%; gap: 14px; padding: 28px 0 40px; text-align: center;
 }
 .welcome-orb {
-  position: relative;
   display: grid; place-items: center;
-  width: 76px; height: 76px; margin-bottom: 6px;
-  border-radius: 26px;
-  background: var(--surface);
-  border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--line));
-  box-shadow: 0 24px 50px -30px color-mix(in srgb, var(--primary) 85%, transparent), var(--shadow-sm);
+  width: 72px; height: 72px;
+  border-radius: 22px;
+  background: var(--primary-soft);
+  color: var(--primary-deep);
 }
-.welcome-orb::before {
-  content: ""; position: absolute; inset: -14px; border-radius: 34px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--primary) 16%, transparent), transparent 68%);
-  animation: breathe 4.5s ease-in-out infinite;
-}
-.welcome-glyph {
-  position: relative;
-  font-size: 34px; line-height: 1;
-  background: linear-gradient(135deg, var(--primary), var(--brand-teal));
-  -webkit-background-clip: text; background-clip: text; color: transparent;
-}
-@keyframes breathe { 0%, 100% { opacity: .55; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.04); } }
+.welcome-glyph { font-size: 32px; line-height: 1; }
 .welcome h2 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -.03em; }
 .welcome-sub { margin: 0; color: var(--ink-3); font-size: 12.5px; }
 .starter-options { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 620px; margin-top: 6px; }
@@ -323,12 +308,12 @@ article.user {
   border: 1px solid var(--line);
   border-radius: 22px;
   background: var(--surface);
-  box-shadow: 0 18px 40px -30px rgba(16, 22, 45, .5), var(--shadow-xs);
+  box-shadow: var(--rp-shadow);
   transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--primary) 42%, var(--line));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 9%, transparent), 0 18px 40px -30px rgba(16, 22, 45, .5);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 9%, transparent);
 }
 .composer :deep(.el-textarea__inner) { box-shadow: none; background: transparent; padding: 8px 0 18px; font-size: 15px; line-height: 1.65; }
 .composer :deep(.el-input__count) { background: transparent; }
@@ -395,7 +380,7 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .timeline { padding-top: 8px; padding-bottom: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .timeline article, .welcome-orb::before { animation: none; }
+  .timeline article { animation: none; }
   .starter-options button { transition: none; }
 }
 </style>

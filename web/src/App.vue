@@ -43,7 +43,7 @@
       </section>
 
       <PublicRequirementsPage v-else-if="tab === 'public'" :stats="stats" :filters="filters" :status-options="statusOptions"
-        v-model:sort-by="sortBy" :items="sortedRequirements" :manager="isManager" :user="user" :loading="listLoading"
+        v-model:sort-by="sortBy" :items="sortedRequirements" :manager="isManager" :user="user" :loading="listLoading" :error="listError"
         @reload="loadRequirements" @submit="switchTab('submit')" @discuss="router.push({ name: 'requirement-intake' })" @open="openDetail" @action="onRowAction" />
 
       <!-- ============ 管理总览 ============ -->
@@ -71,10 +71,9 @@
             <div>
               <h1>提交需求</h1>
               <p class="sub">问题、建议、想要的功能，都可以告诉我们。</p>
-              <p class="desc">AI 会先行整理，帮助维护者更快理解你的真实场景。</p>
             </div>
           </div>
-          <button class="btn-gradient" type="button" @click="router.push({ name: 'requirement-intake' })">
+          <button class="primary-action" type="button" @click="router.push({ name: 'requirement-intake' })">
             <el-icon :size="15"><MagicStick /></el-icon>与 AI 一起整理
           </button>
         </div>
@@ -84,7 +83,7 @@
         <div class="submit-layout">
           <el-form class="panel submit-form" label-position="top" @submit.prevent="submitRequirement" @paste="handlePaste">
             <section class="form-section">
-              <h2 class="form-section-title"><span>01</span>这是什么类型</h2>
+              <h2 class="form-section-title">需求类型</h2>
               <div class="type-cards" role="radiogroup" aria-label="需求类型">
                 <button v-for="option in submitTypes" :key="option.value" type="button" role="radio"
                   :aria-checked="requirementForm.type === option.value" class="type-card"
@@ -98,7 +97,7 @@
             </section>
 
             <section class="form-section">
-              <h2 class="form-section-title"><span>02</span>说说你的想法</h2>
+              <h2 class="form-section-title">需求描述</h2>
               <el-form-item label="标题" required>
                 <el-input v-model="requirementForm.title" maxlength="160" show-word-limit size="large" placeholder="一句话说清你希望改变什么（至少 4 字）" />
               </el-form-item>
@@ -142,7 +141,7 @@
             </details>
 
             <section class="form-section">
-              <h2 class="form-section-title"><span>03</span>如何跟进</h2>
+              <h2 class="form-section-title">跟进方式</h2>
               <RequirementContact v-model:email="requirementForm.notification_email" v-model:opt-in="requirementForm.notification_opt_in" />
               <el-form-item v-if="user" label="公开范围">
                 <el-radio-group v-model="requirementForm.visibility">
@@ -165,7 +164,7 @@
               <div class="aside-ai-orb"><el-icon :size="19"><MagicStick /></el-icon></div>
               <h3>不确定怎么写？</h3>
               <p>描述你的使用场景，AI 会追问细节，并实时整理成一份可编辑的需求单。</p>
-              <button class="btn-gradient" type="button" style="width:100%" @click="router.push({ name: 'requirement-intake' })">让 AI 帮我整理</button>
+              <button class="primary-action" type="button" style="width:100%" @click="router.push({ name: 'requirement-intake' })">让 AI 帮我整理</button>
             </div>
             <div class="side-card">
               <h3>写成这样更容易被采纳</h3>
@@ -226,9 +225,9 @@
     <!-- ============ 页脚 ============ -->
     <footer class="footer">
       <div class="footer-inner">
-        <div class="footer-brand"><img :src="logoUrl" alt="" />行影集<span style="font-weight:400;opacity:.75">· 让好想法变成更好的产品</span></div>
+        <div class="footer-brand"><img :src="logoUrl" alt="" />行影集</div>
         <div class="footer-links">
-          <span>需求管理平台</span><span class="sep">·</span><a href="https://trailsnap.cn" target="_blank" rel="noopener">trailsnap.cn</a><span class="sep">·</span><span>源于社区，用于社区</span>
+          <span>需求管理平台</span><span class="sep">·</span><a href="https://trailsnap.cn" target="_blank" rel="noopener">trailsnap.cn</a>
         </div>
       </div>
     </footer>
@@ -515,6 +514,8 @@ const supplementTarget = ref<Requirement | null>(null)
 const { user, isManager } = storeToRefs(session)
 const requirements = ref<Requirement[]>([]), myRequirements = ref<Requirement[]>([]), adminRequirements = ref<Requirement[]>([])
 const listLoading = ref(true)
+const listError = ref('')
+let listRequest = 0
 const batches = ref<Batch[]>([]), users = ref<ApiUser[]>([]), candidates = ref<Requirement[]>([])
 const agentTokens = ref<AgentToken[]>([])
 const dashboard = ref<Dashboard | null>(null), dashboardLoading = ref(false), detailHistory = ref<RequirementHistory[]>([])
@@ -615,10 +616,20 @@ async function loadRequirements() {
   if (filters.type) p.set('type', filters.type)
   if (filters.status) p.set('status', filters.status)
   else p.set('include_closed', 'false')
+  const request = ++listRequest
   listLoading.value = true
-  try { requirements.value = await api.requirements(`?${p}`) }
-  finally { listLoading.value = false }
-  void loadPublicStats()
+  listError.value = ''
+  try {
+    const items = await api.requirements(`?${p}`)
+    if (request === listRequest) requirements.value = items
+  } catch {
+    if (request === listRequest) listError.value = '公开需求加载失败，请重试。'
+  } finally {
+    if (request === listRequest) {
+      listLoading.value = false
+      void loadPublicStats()
+    }
+  }
 }
 async function loadMine() {
   const local = await Promise.allSettled(receipts.receipts.map(item => api.requirementByNumber(item.number)))

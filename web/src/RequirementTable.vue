@@ -17,7 +17,7 @@
         <article v-for="(item, index) in pagedItems" :key="item.id" class="req-row" tabindex="0" role="link"
           :aria-label="`REQ-${item.public_number} ${item.title}，${statusLabel(item.status)}`"
           :style="{ animationDelay: `${Math.min(index, 10) * 24}ms` }"
-          @click="emit('open', item)" @keydown.enter.prevent="emit('open', item)">
+          @click="emit('open', item)" @keydown.enter.self.prevent="emit('open', item)">
           <span class="req-type-icon" :class="`t-${item.type}`">
             <el-icon :size="19"><component :is="typeIcon(item.type)" /></el-icon>
           </span>
@@ -76,13 +76,9 @@
       </div>
 
       <div v-else class="empty">
-        <svg width="72" height="72" viewBox="0 0 72 72" fill="none" aria-hidden="true">
-          <circle cx="36" cy="36" r="27" stroke="var(--line-2)" stroke-width="1.5" stroke-dasharray="4 5" />
-          <circle cx="36" cy="36" r="16" stroke="var(--line)" stroke-width="1.5" />
-          <circle cx="36" cy="36" r="4" fill="var(--primary)" opacity=".5" />
-        </svg>
-        <strong>这里还很安静</strong>
-        <span>没有匹配的需求，换个筛选条件，或成为第一个提出想法的人。</span>
+        <span class="req-type-icon"><el-icon :size="22"><Collection /></el-icon></span>
+        <strong>暂无匹配需求</strong>
+        <span>试试其他关键词或筛选条件。</span>
       </div>
 
       <div v-if="items.length" class="table-foot">
@@ -96,6 +92,9 @@
     </template>
 
     <!-- ================= 看板视图 ================= -->
+    <div v-else-if="loading && !items.length" class="empty" aria-busy="true">
+      <span>正在加载需求…</span>
+    </div>
     <div v-else class="board">
       <section v-for="column in boardColumns" :key="column.key" class="board-col">
         <header class="board-col-head">
@@ -126,7 +125,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { MoreFilled, Opportunity, FirstAidKit, MagicStick, Star } from '@element-plus/icons-vue'
+import { Collection, MoreFilled, Opportunity, FirstAidKit, MagicStick, Star } from '@element-plus/icons-vue'
 import type { Requirement } from './api'
 import { avatarColor, parseServerDate, priorityLabel, statusLabel, typeLabel } from './labels'
 import { boardColumns, boardColumnOf, trailOf, trailStages } from './requirementTrail'

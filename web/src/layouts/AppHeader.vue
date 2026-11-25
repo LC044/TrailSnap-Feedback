@@ -7,7 +7,7 @@
         <span class="brand-copy"><strong>行影集</strong><small>需求管理平台</small></span>
       </button>
       <button class="rail-collapse" type="button" :aria-label="collapsed ? '展开导航' : '折叠导航'"
-        :title="collapsed ? '展开导航' : '折叠导航'" @click="$emit('toggle')">
+        :title="collapsed ? '展开导航' : '折叠导航'" :aria-expanded="!collapsed" @click="$emit('toggle')">
         <el-icon :size="16"><Expand v-if="collapsed" /><Fold v-else /></el-icon>
       </button>
     </div>
@@ -15,7 +15,7 @@
     <button class="cmdk-trigger" type="button" aria-label="打开命令面板搜索页面与需求" @click="$emit('command')">
       <el-icon :size="15"><Search /></el-icon>
       <span>搜索页面、需求…</span>
-      <kbd>⌘K</kbd>
+      <kbd>{{ shortcut }}</kbd>
     </button>
 
     <nav ref="navElement" class="rail-nav" aria-label="主导航">
@@ -23,7 +23,7 @@
         <p class="nav-group-label">{{ group.label }}</p>
         <button v-for="item in group.items" :key="item.key" type="button" class="nav-item"
           :class="{ active: active === item.key }" :aria-current="active === item.key ? 'page' : undefined"
-          :title="collapsed ? item.label : undefined" @click="go(item.key)">
+          :title="collapsed ? item.label : undefined" :aria-label="collapsed ? item.label : undefined" @click="go(item.key)">
           <span class="nav-ico"><el-icon :size="18"><component :is="item.icon" /></el-icon></span>
           <span class="nav-label">{{ item.label }}</span>
           <span v-if="badges?.[item.key]" class="nav-badge">{{ badges[item.key] }}</span>
@@ -57,8 +57,8 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-      <button v-else class="btn-gradient" style="width:100%;min-height:38px" type="button" @click="$emit('login')">
-        <el-icon :size="15"><User /></el-icon>登录 / 注册
+      <button v-else class="primary-action rail-login" type="button" aria-label="登录或注册" @click="$emit('login')">
+        <el-icon :size="15"><User /></el-icon><span>登录 / 注册</span>
       </button>
     </div>
   </header>
@@ -166,6 +166,7 @@ const emit = defineEmits<{
 
 const navElement = ref<HTMLElement | null>(null)
 const sheetOpen = ref(false)
+const shortcut = navigator.platform.startsWith('Mac') ? '⌘K' : 'Ctrl K'
 
 /* ---- 页面分组：让导航有信息架构，而不是一长串平铺 ---- */
 const groupOf: Record<string, string> = {
