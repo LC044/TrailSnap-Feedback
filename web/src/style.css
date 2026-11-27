@@ -601,6 +601,11 @@ html.dark {
 .tag.s-rejected, .tag.s-blocked, .tag.s-cancelled { background: var(--danger-soft); color: var(--danger); }
 .tag.s-deferred, .tag.s-paused { background: var(--accent-soft); color: var(--accent); }
 .tag.s-duplicate, .tag.s-withdrawn, .tag.s-closed { background: var(--surface-3); color: var(--ink-3); }
+/* 对外展示的四个阶段（stages.ts），徽章只按阶段着色 */
+.tag.s-pending { background: var(--warning-soft); color: var(--warning); }
+.tag.s-planned { background: var(--violet-soft); color: var(--violet); }
+.tag.s-building { background: var(--primary-soft); color: var(--primary); }
+.tag.s-done { background: var(--success-soft); color: var(--success); }
 
 /* 类型 */
 .tag.t-feature { background: var(--primary-soft); color: var(--primary); }

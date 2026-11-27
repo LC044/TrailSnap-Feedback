@@ -29,7 +29,7 @@
             </button>
             <p class="req-desc">{{ item.description }}</p>
             <div class="req-meta">
-              <span class="tag" :class="`s-${item.status}`">{{ statusLabel(item.status) }}</span>
+              <span class="tag" :class="`s-${stageKeyOf(item.status)}`" :title="statusLabel(item.status)">{{ stageLabel(item.status) }}</span>
               <span class="trail" :title="trailTitle(item.status)" :aria-label="trailTitle(item.status)" role="img">
                 <i v-for="(stage, stageIndex) in trailStages" :key="stage.key" class="trail-seg"
                   :class="{
@@ -128,6 +128,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Collection, MoreFilled, Opportunity, FirstAidKit, MagicStick, Star } from '@element-plus/icons-vue'
 import type { Requirement } from './api'
 import { avatarColor, parseServerDate, priorityLabel, statusLabel, typeLabel } from './labels'
+import { stageKeyOf, stageLabel } from './stages'
 import { boardColumns, boardColumnOf, trailOf, trailStages } from './requirementTrail'
 
 const props = defineProps<{

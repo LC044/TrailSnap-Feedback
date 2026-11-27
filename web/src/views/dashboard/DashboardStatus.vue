@@ -85,7 +85,7 @@ const activeGroup = computed(() => groups.value.find(group => group.key === acti
 const centerCount = computed(() => activeGroup.value ? formatNumber(activeGroup.value.count) : formatNumber(total.value))
 const centerLabel = computed(() => activeGroup.value?.label ?? '全部需求')
 
-const groupKeyOf = (status: string) => statusGroups.find(group => group.statuses.includes(status))?.key ?? 'closed'
+const groupKeyOf = (status: string) => statusGroups.find(group => group.statuses.includes(status))?.key ?? 'done'
 const detailRows = computed<BreakdownRow[]>(() => {
   const entries = Object.entries(props.data.by_status ?? {}).filter(([, count]) => count > 0)
   const filtered = selected.value ? entries.filter(([status]) => groupKeyOf(status) === selected.value) : entries

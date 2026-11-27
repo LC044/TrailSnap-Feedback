@@ -49,8 +49,10 @@ export const statusGroups: StatusGroup[] = [
   { key: 'pending', label: '待处理', color: palette.amber, statuses: ['submitted', 'triaging', 'pending_review', 'needs_information'] },
   { key: 'planned', label: '已规划', color: palette.indigo, statuses: ['candidate', 'accepted', 'scheduled', 'planning', 'candidate_selection', 'scope_locked'] },
   { key: 'developing', label: '开发中', color: palette.blue, statuses: ['developing', 'testing', 'release_ready', 'pr_open', 'merged', 'paused', 'blocked'] },
-  { key: 'done', label: '已完成', color: palette.green, statuses: ['released', 'published', 'completed'] },
-  { key: 'closed', label: '已关闭', color: palette.slate, statuses: ['closed', 'rejected', 'duplicate', 'withdrawn', 'deferred', 'cancelled'] },
+  {
+    key: 'done', label: '已完成', color: palette.green,
+    statuses: ['released', 'published', 'completed', 'closed', 'rejected', 'duplicate', 'withdrawn', 'deferred', 'cancelled'],
+  },
 ]
 
 const groupByStatus = new Map<string, StatusGroup>()
@@ -75,7 +77,7 @@ export function toRows(source: Record<string, number> | undefined, meta: (key: s
 export function groupRows(data: Dashboard) {
   const counts = new Map(statusGroups.map(group => [group.key, 0]))
   for (const [status, count] of Object.entries(data.by_status ?? {})) {
-    const key = groupByStatus.get(status)?.key ?? 'closed'
+    const key = groupByStatus.get(status)?.key ?? 'done'
     counts.set(key, (counts.get(key) ?? 0) + count)
   }
   const total = [...counts.values()].reduce((sum, count) => sum + count, 0)

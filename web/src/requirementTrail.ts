@@ -1,45 +1,31 @@
-/** 需求生命周期：用于列表轨迹、详情步骤条与看板分组。 */
+/** 需求生命周期：用于列表轨迹、详情步骤条与看板分组。统一由 stages.ts 派生。 */
+
+import { isTerminated, stageIndex, stageOf, stages } from './stages'
 
 export type TrailStage = { key: string; label: string; short: string; statuses: string[] }
 
-export const trailStages: TrailStage[] = [
-  { key: 'intake', label: '已提交', short: '提交', statuses: ['submitted', 'triaging', 'withdrawn'] },
-  { key: 'review', label: '评估中', short: '评估', statuses: ['pending_review', 'needs_information'] },
-  { key: 'planned', label: '已规划', short: '规划', statuses: ['candidate', 'accepted', 'scheduled', 'planning', 'candidate_selection', 'scope_locked'] },
-  { key: 'building', label: '开发中', short: '开发', statuses: ['developing', 'testing', 'release_ready', 'pr_open', 'merged', 'paused', 'blocked'] },
-  { key: 'shipped', label: '已发布', short: '发布', statuses: ['released', 'published', 'completed'] },
-]
-
-const closedStatuses = ['closed', 'rejected', 'duplicate', 'deferred', 'cancelled']
+export const trailStages: TrailStage[] = stages.map(({ key, label, short, statuses }) => ({ key, label, short, statuses }))
 
 export type TrailState = {
-  /** 当前所处阶段下标，-1 表示未进入主流程（重复/关闭等） */
+  /** 当前所处阶段下标，-1 表示不属于任何阶段（未知状态） */
   index: number
   stage: TrailStage | null
+  /** 已终止：拒绝/暂缓/重复/撤回/关闭，轨迹整体置灰 */
   stopped: boolean
   progress: number
 }
 
 export function trailOf(status: string): TrailState {
-  const index = trailStages.findIndex(stage => stage.statuses.includes(status))
-  const stopped = closedStatuses.includes(status)
+  const index = stageIndex(status)
   return {
-    index: stopped ? -1 : index,
+    index,
     stage: index >= 0 ? trailStages[index]! : null,
-    stopped,
-    progress: stopped ? 0 : ((index + 1) / trailStages.length) * 100,
+    stopped: isTerminated(status),
+    progress: index >= 0 ? ((index + 1) / trailStages.length) * 100 : 0,
   }
 }
 
-/** 看板分组：合并为六列，保证列数稳定、可横向浏览。 */
-export const boardColumns: Array<{ key: string; label: string; color: string; statuses: string[] }> = [
-  { key: 'intake', label: '待分析', color: 'var(--info)', statuses: ['submitted', 'triaging'] },
-  { key: 'review', label: '待审核', color: 'var(--warning)', statuses: ['pending_review', 'needs_information'] },
-  { key: 'planned', label: '已规划', color: 'var(--violet)', statuses: ['candidate', 'accepted', 'scheduled', 'planning', 'candidate_selection', 'scope_locked'] },
-  { key: 'building', label: '开发中', color: 'var(--primary)', statuses: ['developing', 'testing', 'release_ready', 'pr_open', 'merged', 'paused', 'blocked'] },
-  { key: 'shipped', label: '已发布', color: 'var(--success)', statuses: ['released', 'published', 'completed'] },
-  { key: 'closed', label: '已关闭', color: 'var(--ink-4)', statuses: closedStatuses },
-]
+/** 看板列与阶段一一对应，四列稳定、不出现空列。 */
+export const boardColumns = stages.map(({ key, label, color, statuses }) => ({ key, label, color, statuses }))
 
-export const boardColumnOf = (status: string) =>
-  boardColumns.find(column => column.statuses.includes(status))?.key ?? 'closed'
+export const boardColumnOf = (status: string) => stageOf(status).key

@@ -9,7 +9,7 @@
         <div class="dh-eyebrow">
           <span class="req-number">REQ-{{ requirement.public_number }}</span>
           <span class="tag no-dot" :class="`t-${requirement.type}`">{{ typeLabel(requirement.type) }}</span>
-          <span class="tag" :class="`s-${requirement.status}`">{{ statusLabel(requirement.status) }}</span>
+          <span class="tag" :class="`s-${stageKeyOf(requirement.status)}`" :title="statusLabel(requirement.status)">{{ stageLabel(requirement.status) }}</span>
         </div>
         <h1>{{ requirement.title }}</h1>
         <div class="detail-meta">
@@ -31,9 +31,8 @@
     <!-- ============ 生命周期 ============ -->
     <section class="trail-card" aria-label="需求进展">
       <ol class="trail-steps">
-        <li v-for="(stage, index) in trailStages" :key="stage.key"
-          :class="{ done: trail.index > index, now: trail.index === index, stopped: trail.stopped && index === 0 }">
-          <span class="ts-dot"><el-icon v-if="trail.index > index" :size="10"><Check /></el-icon></span>
+        <li v-for="(stage, index) in trailStages" :key="stage.key" :class="stepState(index)">
+          <span class="ts-dot"><el-icon v-if="showCheck(index)" :size="10"><Check /></el-icon></span>
           <span class="ts-label">{{ stage.short }}</span>
         </li>
       </ol>
@@ -146,7 +145,7 @@
               <dt><el-icon><View /></el-icon>需求状态</dt>
               <dd>
                 <button class="status-control" type="button" :disabled="!manager" @click="emit('status')">
-                  <span class="tag" :class="`s-${requirement.status}`">{{ statusLabel(requirement.status) }}</span>
+                  <span class="tag" :class="`s-${stageKeyOf(requirement.status)}`" :title="statusLabel(requirement.status)">{{ stageLabel(requirement.status) }}</span>
                   <el-icon v-if="manager" :size="12"><ArrowDown /></el-icon>
                 </button>
               </dd>
@@ -212,6 +211,7 @@ import type { Requirement, RequirementHistory, RequirementSupplement } from './a
 import { nextAction } from './feedbackExperience'
 import { avatarColor, formatDateTime, priorityLabel, statusLabel, typeLabel } from './labels'
 import { trailOf, trailStages } from './requirementTrail'
+import { stageKeyOf, stageLabel } from './stages'
 import DeliveryWorkspace from './DeliveryWorkspace.vue'
 import { api } from './api'
 
@@ -246,6 +246,16 @@ const emit = defineEmits<{
 }>()
 
 const trail = computed(() => trailOf(props.requirement.status))
+
+/** 四段步骤条：终止的需求只把末段标灰，不假装走完了前几步。 */
+const lastStep = () => trailStages.length - 1
+function stepState(index: number): string {
+  if (trail.value.stopped) return index === lastStep() ? 'stopped' : ''
+  if (index < trail.value.index) return 'done'
+  if (index === trail.value.index) return index === lastStep() ? 'done' : 'now'
+  return ''
+}
+const showCheck = (index: number) => stepState(index) === 'done'
 
 const markdown = new MarkdownIt({ html: false, linkify: true, breaks: true })
 markdown.renderer.rules.link_open = (tokens, index, options, _env, self) => {
@@ -343,7 +353,7 @@ const historyLabel = (event: RequirementHistory) => {
     linear-gradient(120deg, color-mix(in srgb, var(--primary) 5%, var(--surface)), var(--surface) 46%);
   box-shadow: var(--shadow-xs);
 }
-.trail-steps { display: grid; grid-template-columns: repeat(5, 1fr); list-style: none; margin: 0; padding: 0; }
+.trail-steps { display: grid; grid-template-columns: repeat(4, 1fr); list-style: none; margin: 0; padding: 0; }
 .trail-steps li { position: relative; display: grid; justify-items: center; gap: 7px; }
 .trail-steps li::before {
   content: ""; position: absolute; top: 8px; left: -50%; width: 100%; height: 2px;

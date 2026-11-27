@@ -35,8 +35,7 @@
             @click="setType(option.value)">{{ option.label }}</button>
         </div>
         <el-select v-model="filters.status" clearable placeholder="全部状态" aria-label="需求状态" class="select" @change="$emit('reload')">
-          <el-option v-for="status in statusOptions" :key="status" :label="statusLabel(status)" :value="status" />
-          <el-option label="已关闭" value="closed" />
+          <el-option v-for="option in statusOptions" :key="option.value" :label="option.label" :value="option.value" />
         </el-select>
         <el-select :model-value="sortBy" placeholder="最新更新" aria-label="排序方式" class="sort" @update:model-value="$emit('update:sortBy', String($event))">
           <el-option label="最新更新" value="updated" /><el-option label="最早提交" value="oldest" /><el-option label="关注最多" value="followers" />
@@ -66,13 +65,12 @@
 import { ref } from 'vue'
 import { CircleCheck, Collection, Grid, List, MagicStick, Plus, Refresh, Search, Timer, Tools } from '@element-plus/icons-vue'
 import RequirementTable from '../../RequirementTable.vue'
-import { statusLabel } from '../../labels'
 import type { Requirement, User } from '../../api'
 
 const props = defineProps<{
   stats: { total: number; planned: number; developing: number; done: number }
   filters: { q: string; type: string; status: string }
-  statusOptions: string[]
+  statusOptions: { value: string; label: string }[]
   sortBy: string
   items: Requirement[]
   manager: boolean

@@ -287,7 +287,12 @@ def list_requirements(
         else:
             query = query.filter(Requirement.visibility == "public")
     if status:
-        query = query.filter(Requirement.status == status)
+        # 前端按展示阶段筛选，一个阶段可能对应多个内部状态，用逗号拼接。
+        wanted = [item.strip() for item in status.split(",") if item.strip()]
+        if len(wanted) == 1:
+            query = query.filter(Requirement.status == wanted[0])
+        elif wanted:
+            query = query.filter(Requirement.status.in_(wanted))
     if type:
         query = query.filter(Requirement.type == type)
     if q:

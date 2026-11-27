@@ -45,7 +45,8 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { Document, Right, Search } from '@element-plus/icons-vue'
-import { statusLabel, typeLabel } from '../labels'
+import { typeLabel } from '../labels'
+import { stageKeyOf, stageLabel } from '../stages'
 import type { Requirement } from '../api'
 import type { AppTab } from '../router'
 
@@ -94,7 +95,7 @@ const reqRows = computed(() => {
     meta: `REQ-${item.public_number ?? '—'} · ${typeLabel(item.type)} · ${item.created_by_name || '用户'}`,
     icon: Document as Component,
     tone: item.type === 'bug' ? 'danger' : item.type === 'improvement' ? 'violet' : 'primary',
-    tag: statusLabel(item.status), tagClass: `s-${item.status}`,
+    tag: stageLabel(item.status), tagClass: `s-${stageKeyOf(item.status)}`,
     action: () => { if (item.public_number) emit('openRequirement', item.public_number) },
   }))
 })

@@ -411,6 +411,7 @@ import {
   requirementStatuses, reviewActionLabels,
   statusLabel,
 } from './labels'
+import { stageOptions, stageStatusParam, stages } from './stages'
 import RequirementDetail from './RequirementDetail.vue'
 import TokenUsage from './TokenUsage.vue'
 import AISettingsPage from './AISettingsPage.vue'
@@ -427,7 +428,8 @@ import IntegrationSettingsPage from './views/settings/IntegrationSettingsPage.vu
 import { useRoute, useRouter } from 'vue-router'
 import type { AppTab as Tab } from './router'
 
-const statusOptions = ['pending_review', 'candidate', 'scheduled', 'developing', 'testing', 'release_ready', 'released', 'deferred', 'rejected']
+// 对外只暴露四个阶段；这里保留变量名，避免改动模板里的一堆引用。
+const statusOptions = stageOptions
 const reviewStatuses = ['submitted', 'triaging', 'pending_review', 'needs_information', 'candidate', 'deferred', 'rejected', 'duplicate']
 const deliveryStatuses = ['not_started', 'developing', 'pr_open', 'testing', 'completed', 'blocked', 'removed']
 const batchTransitions: Record<string, string[]> = {
@@ -576,11 +578,9 @@ function toggleNavigation() {
   try { localStorage.setItem('rp_nav_collapsed', navCollapsed.value ? '1' : '0') } catch { /* Keep the session preference. */ }
 }
 
-const plannedStatuses = ['scheduled', 'developing', 'testing', 'release_ready']
-// 开发中口径：规格已批准（accepted，交付已授权）+ 开发中（developing）。
-const developingStatuses = ['accepted', 'developing']
-// 已完成口径：交付完成（released/published/completed）+ 已关闭（closed）+ 已拒绝（rejected）。
-const doneStatuses = ['released', 'published', 'completed', 'closed', 'rejected']
+// 统计口径与展示阶段一致：一个阶段 = stages 里对应的一串内部状态，互不重叠。
+const stageCount = (key: string, counts: Record<string, number>) =>
+  stages.find(stage => stage.key === key)?.statuses.reduce((total, status) => total + (counts[status] || 0), 0) ?? 0
 // 统计来自服务端公开口径（仅公开需求、不受列表分页与筛选影响）。
 const publicStatusCounts = ref<Record<string, number>>({})
 async function loadPublicStats() {
@@ -588,12 +588,11 @@ async function loadPublicStats() {
 }
 const stats = computed(() => {
   const counts = publicStatusCounts.value
-  const count = (status: string) => counts[status] || 0
   return {
     total: Object.values(counts).reduce((total, value) => total + value, 0),
-    planned: plannedStatuses.reduce((total, status) => total + count(status), 0),
-    developing: developingStatuses.reduce((total, status) => total + count(status), 0),
-    done: doneStatuses.reduce((total, status) => total + count(status), 0),
+    planned: stageCount('planned', counts),
+    developing: stageCount('building', counts),
+    done: stageCount('done', counts),
   }
 })
 const sortedRequirements = computed(() => {
@@ -614,7 +613,7 @@ async function loadRequirements() {
   const p = new URLSearchParams()
   if (filters.q) p.set('q', filters.q)
   if (filters.type) p.set('type', filters.type)
-  if (filters.status) p.set('status', filters.status)
+  if (filters.status) p.set('status', stageStatusParam(filters.status))
   else p.set('include_closed', 'false')
   const request = ++listRequest
   listLoading.value = true
