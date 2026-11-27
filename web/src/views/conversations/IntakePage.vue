@@ -14,16 +14,13 @@
       </div>
     </header>
 
-    <div class="assistant-tools">
-      <div class="seg mode-tabs" role="group" aria-label="讨论类型">
-        <button v-for="item in modes" :key="item.value" type="button" :aria-pressed="mode === item.value" :disabled="sending" @click="mode = item.value">{{ item.label }}</button>
-      </div>
-      <div class="knowledge-status" role="status">
-        <span class="status-dot" :class="{ ready: snapshot?.ready }"></span>
-        <span>{{ snapshot?.ready ? `基于 ${snapshot.tag} 源码与官网文档` : snapshot?.message || '正在读取资料状态…' }}</span>
-        <small v-if="snapshot?.stale">资料更新中，当前使用缓存</small>
-        <small v-if="snapshot?.warning">{{ snapshot.warning }}</small>
-      </div>
+    <div v-if="isMobile" class="assistant-tools">
+      <ModeTabs v-model="mode" :modes="modes" :disabled="sending" />
+      <el-tooltip :content="knowledgeLabel" placement="bottom" :show-after="150">
+        <span class="knowledge-dot" :class="{ ready: snapshot?.ready }" role="status" tabindex="0">
+          <i class="status-dot" aria-hidden="true"></i>
+        </span>
+      </el-tooltip>
     </div>
 
     <div class="intake-workspace" :class="{ 'preview-open': draft && showPreview }">
@@ -63,11 +60,24 @@
         </div>
 
         <form class="composer" @submit.prevent="send">
-          <ChatQuota :quota="quota" />
-          <el-input v-model="content" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :readonly="sending" resize="none" maxlength="2000" show-word-limit aria-label="讨论内容" placeholder="聊聊行影集，或补充刚才的细节…" @keydown="chatEnter($event, send)" />
+          <div v-if="!isMobile" class="composer-top">
+            <ModeTabs v-model="mode" :modes="modes" :disabled="sending" />
+            <el-tooltip :content="knowledgeLabel" placement="top" :show-after="150">
+              <span class="knowledge-dot" :class="{ ready: snapshot?.ready }" role="status" tabindex="0">
+                <i class="status-dot" aria-hidden="true"></i><span class="kd-label">{{ snapshot?.ready ? '资料就绪' : '资料读取中' }}</span>
+              </span>
+            </el-tooltip>
+          </div>
+          <el-input v-model="content" type="textarea" :rows="1" :autosize="isMobile ? false : { minRows: 1, maxRows: 5 }" :readonly="sending" resize="none" maxlength="2000" show-word-limit aria-label="讨论内容" placeholder="聊聊行影集，或补充刚才的细节…" @keydown="chatEnter($event, send)" />
           <div class="actions">
-            <span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : 'Enter 发送 · Shift + Enter 换行' }}</span>
-            <el-button type="primary" native-type="submit" :loading="sending" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">发送 ↑</el-button>
+            <div class="actions-meta">
+              <span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : 'Enter 发送 · Shift + Enter 换行' }}</span>
+              <ChatQuota :quota="quota" />
+            </div>
+            <el-button type="primary" native-type="submit" :loading="sending" :circle="isMobile" aria-label="发送" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">
+              <span class="send-text" aria-hidden="true">发送 ↑</span>
+              <el-icon class="send-icon" aria-hidden="true"><Promotion /></el-icon>
+            </el-button>
           </div>
         </form>
       </div>
@@ -97,7 +107,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowRight } from '@element-plus/icons-vue'
+import { ArrowRight, Promotion } from '@element-plus/icons-vue'
 import { api, type Requirement } from '../../api'
 import { intake, type Draft, type ChatMode, type Source, type Snapshot } from '../../api/intake'
 import type { Quota } from '../../api/collaboration'
@@ -108,6 +118,7 @@ import ChatQuota from '../../components/ChatQuota.vue'
 import ThinkingDots from '../../components/ThinkingDots.vue'
 import { chatEnter } from '../../chatKeyboard'
 import ChatActivity from '../../components/ChatActivity.vue'
+import ModeTabs from '../../components/ModeTabs.vue'
 import type { ChatActivity as Activity } from '../../api/chatStream'
 
 const router = useRouter(), receipts = useAnonymousReceipts()
@@ -124,8 +135,17 @@ function updateActivity(event: Activity) {
   void scrollToEnd()
 }
 const mode = ref<ChatMode>('feedback'), snapshot = ref<Snapshot>()
+// 窄屏下模式选择回到顶部、输入区收成单行，模板按这个断点切换结构。
+const mobileQuery = window.matchMedia('(max-width: 600px)'), isMobile = ref(mobileQuery.matches)
+const syncMobile = (event: MediaQueryListEvent) => { isMobile.value = event.matches }
 const modes: { value: ChatMode; label: string }[] = [{ value: 'feedback', label: '✦ 需求反馈' }, { value: 'bug', label: '⌕ 问题排查' }, { value: 'consultation', label: '？ 使用咨询' }]
 const samples = computed(() => mode.value === 'consultation' ? ['行影集如何添加照片目录？', '行影集如何开启人脸识别？', '如何在飞牛 NAS 安装行影集？'] : mode.value === 'bug' ? ['行影集照片导出失败', '行影集登录后出现报错', '行影集地图轨迹有问题'] : ['行影集想增加批量操作', '想改进人物相册', '行影集照片导出体验优化'])
+const knowledgeLabel = computed(() => {
+  const s = snapshot.value
+  if (!s) return '正在读取资料状态…'
+  if (!s.ready) return s.message || '资料尚未就绪，回答可能不完整'
+  return [`基于 ${s.tag ?? '当前版本'} 源码与官网文档`, s.stale ? '资料更新中，当前使用缓存' : '', s.warning ?? ''].filter(Boolean).join(' · ')
+})
 const timeline = ref<HTMLElement | null>(null), showPreview = ref(false)
 let key = newEditToken(), state: string | undefined, creationKey = newEditToken()
 let pendingSubmission: Record<string, unknown> | undefined
@@ -180,8 +200,8 @@ async function submit() {
     await router.push(`/requirements/REQ-${created.public_number}/conversation`)
   } catch (e) { ElMessage.error(reason(e)) } finally { submitting.value = false }
 }
-onMounted(async () => { const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
-onBeforeUnmount(() => { stopped = true; controller?.abort(); clearInterval(timer) })
+onMounted(async () => { mobileQuery.addEventListener('change', syncMobile); const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
+onBeforeUnmount(() => { stopped = true; mobileQuery.removeEventListener('change', syncMobile); controller?.abort(); clearInterval(timer) })
 </script>
 
 <style scoped>
@@ -206,20 +226,24 @@ onBeforeUnmount(() => { stopped = true; controller?.abort(); clearInterval(timer
 .header-actions { display: flex; gap: 8px; flex: none; }
 .header-actions .el-button { margin: 0; }
 
+/* 窄屏：模式选择回到顶部 */
 .assistant-tools {
   flex: none;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 0 32px 10px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px 8px;
 }
-.mode-tabs { background: var(--surface-3); }
-.knowledge-status {
-  display: flex; align-items: center; gap: 6px; min-width: 0;
-  font-size: 11px; color: var(--ink-4);
+
+/* 输入区顶部：模式选择 + 资料状态 */
+.composer-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: -2px 0 4px; }
+.knowledge-dot {
+  display: inline-flex; align-items: center; gap: 6px; flex: none; min-width: 0;
+  padding: 3px 4px; border-radius: 99px;
+  font-size: 11px; color: var(--ink-4); cursor: help;
 }
-.knowledge-status > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.knowledge-status small { font-size: 10.5px; }
+.knowledge-dot .kd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-dot:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--ink-5); }
-.status-dot.ready { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.knowledge-dot.ready .status-dot { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
 
 /* ---------------- 工作区 ---------------- */
 .intake-workspace { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
@@ -316,10 +340,23 @@ article.user {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 9%, transparent);
 }
 .composer :deep(.el-textarea__inner) { box-shadow: none; background: transparent; padding: 8px 0 18px; font-size: 15px; line-height: 1.65; }
+/* 卡片已有 focus-within 光圈，去掉 textarea 自身的内圈，避免双层描边 */
+.composer :deep(.el-textarea__inner:focus) { box-shadow: none !important; }
+.composer :deep(.chat-quota) { position: relative; margin: 0; font-size: 11px; color: var(--ink-4); }
+.composer :deep(.chat-quota summary) { min-height: 0; gap: 0 10px; }
+/* 展开额度说明时用浮层，避免把底部这一行撑变形 */
+.composer :deep(.chat-quota p) {
+  position: absolute; left: 0; bottom: calc(100% + 8px); z-index: 6;
+  width: min(420px, 74vw); margin: 0; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface);
+  box-shadow: var(--shadow-md); font-size: 11.5px;
+}
 .composer :deep(.el-input__count) { background: transparent; }
 .actions { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-top: 2px; }
+.actions-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 12px; min-width: 0; }
 .actions span { color: var(--ink-4); font-size: 11px; }
 .actions .el-button { flex: none; min-width: 84px; min-height: 38px; border-radius: 12px; }
+.send-icon { display: none; }
 
 /* 需求单预览 */
 .preview {
@@ -357,10 +394,6 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .ai-copy h1 { font-size: 16px; }
   .ai-copy p { display: none; }
   .header-actions .el-button { padding: 8px 10px; font-size: 12px; }
-  .assistant-tools { padding: 0 12px 8px; gap: 8px; }
-  .mode-tabs { width: 100%; }
-  .mode-tabs button { flex: 1; padding: 0 8px; font-size: 12px; }
-  .knowledge-status small { display: none; }
   .timeline { padding: 14px 16px 6px; }
   .welcome { gap: 10px; padding: 18px 0 28px; }
   .welcome-orb { width: 62px; height: 62px; border-radius: 21px; }
@@ -369,12 +402,24 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .starter-options { flex-direction: column; width: 100%; max-width: 340px; }
   .starter-options button { text-align: left; justify-content: flex-start; }
   article.user { max-width: 92%; padding: 11px 14px; }
-  .composer { width: calc(100% - 24px); margin: 6px 12px max(10px, env(safe-area-inset-bottom)); padding: 8px 12px 10px; border-radius: 18px; }
-  .actions span { font-size: 10px; }
+  /* 单行输入：textarea 与圆形发送键同一行 */
+  .composer {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 6px;
+    width: calc(100% - 24px); margin: 6px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 6px 8px 6px 14px; border-radius: 16px;
+  }
+  .composer :deep(.chat-quota),
+  .composer :deep(.el-input__count),
+  .actions span { display: none; }
+  .composer :deep(.el-textarea__inner) { padding: 9px 0; font-size: 15px; line-height: 1.4; }
+  .actions { margin: 0; }
+  .actions .el-button { min-width: 40px; width: 40px; height: 40px; padding: 0; }
+  .send-text { display: none; }
+  .send-icon { display: inline-flex; font-size: 18px; }
   .preview { padding: 16px; }
 }
 @media (max-height: 600px) {
-  .knowledge-status { display: none; }
+  .knowledge-dot { display: none; }
   .composer :deep(.el-textarea__inner) { min-height: 46px !important; height: 46px !important; }
   .composer :deep(.chat-quota) { margin: 0; }
   .timeline { padding-top: 8px; padding-bottom: 8px; }
