@@ -214,6 +214,7 @@
         @connect-token="openMcpConnection" @revoke-token="revokeToken" @copy="copyText" />
 
       <!-- ============ AI 模型设置 ============ -->
+      <AIUsagePage v-else-if="tab === 'ai-usage' && isManager" />
       <AISettingsPage v-else-if="tab === 'ai-settings' && isManager" />
 
       <!-- ============ 角色管理 ============ -->
@@ -411,10 +412,11 @@ import {
   requirementStatuses, reviewActionLabels,
   statusLabel,
 } from './labels'
-import { stageOptions, stageStatusParam, stages } from './stages'
+import { stageOptions, stages } from './stages'
 import RequirementDetail from './RequirementDetail.vue'
 import TokenUsage from './TokenUsage.vue'
 import AISettingsPage from './AISettingsPage.vue'
+import AIUsagePage from './views/settings/AIUsagePage.vue'
 import { useSessionStore } from './stores/session'
 import { useAnonymousReceipts, newEditToken } from './stores/anonymousReceipts'
 import PublicRequirementsPage from './views/requirements/PublicRequirementsPage.vue'
@@ -568,6 +570,7 @@ const visibleTabs = computed(() => [
   { key: 'usage' as Tab, label: 'Token 用量', icon: TrendCharts },
   ...(isManager.value ? [{ key: 'notifications' as Tab, label: '邮件通知', icon: Connection }] : []),
   ...(isManager.value ? [{ key: 'admin' as Tab, label: '需求审核', icon: Checked }] : []),
+  ...(isManager.value ? [{ key: 'ai-usage' as Tab, label: 'AI 用量', icon: TrendCharts }] : []),
   ...(isManager.value ? [{ key: 'ai-settings' as Tab, label: 'AI 设置', icon: MagicStick }] : []),
   ...(isManager.value ? [{ key: 'integrations' as Tab, label: '集成设置', icon: Connection }] : []),
   ...(user.value?.role === 'owner' ? [{ key: 'users' as Tab, label: '角色管理', icon: Setting }] : []),
@@ -610,10 +613,10 @@ async function refreshDetail() {
 }
 
 async function loadRequirements() {
-  const p = new URLSearchParams()
+  const p = new URLSearchParams({ public_only: 'true' })
   if (filters.q) p.set('q', filters.q)
   if (filters.type) p.set('type', filters.type)
-  if (filters.status) p.set('status', stageStatusParam(filters.status))
+  if (filters.status) p.set('stage', filters.status)
   else p.set('include_closed', 'false')
   const request = ++listRequest
   listLoading.value = true
@@ -1215,7 +1218,7 @@ onMounted(async () => {
     history.replaceState({}, '', `${window.location.pathname}${params.size ? `?${params}` : ''}`)
   }
   const requestedTab = params.get('view') as Tab | null
-  if (requestedTab && ['public', 'dashboard', 'submit', 'assistant', 'mine', 'admin', 'versions', 'usage', 'integrations', 'ai-settings', 'users'].includes(requestedTab)) tab.value = requestedTab
+  if (requestedTab && ['public', 'dashboard', 'submit', 'assistant', 'mine', 'admin', 'versions', 'usage', 'integrations', 'ai-settings', 'ai-usage', 'users'].includes(requestedTab)) tab.value = requestedTab
   const requestedType = params.get('type')
   if (requestedType && ['bug', 'improvement', 'feature'].includes(requestedType)) requirementForm.type = requestedType
   if (tab.value === 'submit') {
@@ -1225,7 +1228,7 @@ onMounted(async () => {
     } catch { /* Invalid or unavailable drafts must not block feedback. */ }
   }
   if (!user.value) await restoreSession()
-  if ((['admin', 'integrations', 'ai-settings'].includes(tab.value) && !isManager.value) || (tab.value === 'users' && user.value?.role !== 'owner')) tab.value = 'assistant'
+  if ((['admin', 'integrations', 'ai-settings', 'ai-usage'].includes(tab.value) && !isManager.value) || (tab.value === 'users' && user.value?.role !== 'owner')) tab.value = 'assistant'
   await Promise.all([loadRequirements(), loadBatches()])
   if (tab.value === 'mine') await loadMine()
   if (tab.value === 'admin') await loadAdmin()

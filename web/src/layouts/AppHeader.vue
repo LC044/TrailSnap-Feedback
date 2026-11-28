@@ -172,7 +172,7 @@ const shortcut = navigator.platform.startsWith('Mac') ? '⌘K' : 'Ctrl K'
 const groupOf: Record<string, string> = {
   assistant: '共创', public: '共创', submit: '共创', mine: '共创',
   versions: '规划', dashboard: '规划', usage: '规划',
-  admin: '管理', notifications: '管理', 'ai-settings': '管理', integrations: '管理', users: '管理',
+  admin: '管理', notifications: '管理', 'ai-settings': '管理', 'ai-usage': '管理', integrations: '管理', users: '管理',
 }
 const order = ['共创', '规划', '管理']
 const groups = computed(() => order

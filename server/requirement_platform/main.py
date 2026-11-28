@@ -61,6 +61,8 @@ from .api.collaboration import router as collaboration_router
 from .api.intake import router as intake_router
 from .mail_settings import router as mail_settings_router
 from .model_usage import router as model_usage_router
+from .api.ai_conversations import router as ai_conversations_router
+from .api.ai_overview import router as ai_overview_router
 
 def agent_with_scope(required_scope: str | None = None):
     def dependency(authorization: str | None = Header(default=None, alias="Authorization"), db: Session = Depends(get_db)):
@@ -98,6 +100,8 @@ app.include_router(collaboration_router)
 app.include_router(intake_router)
 app.include_router(mail_settings_router)
 app.include_router(model_usage_router)
+app.include_router(ai_conversations_router)
+app.include_router(ai_overview_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),

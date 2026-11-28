@@ -181,6 +181,7 @@ class AIModelCreate(BaseModel):
     display_name: str = Field(default="", max_length=160)
     enabled: bool = True
     supports_json_mode: bool = True
+    supports_vision: bool = False
     context_window: int | None = Field(default=None, ge=1024, le=10_000_000)
     reasoning_levels: list[Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]] = Field(
         default_factory=lambda: ["none", "low", "medium", "high"], min_length=1
@@ -192,6 +193,7 @@ class AIModelUpdate(BaseModel):
     display_name: str | None = Field(default=None, max_length=160)
     enabled: bool | None = None
     supports_json_mode: bool | None = None
+    supports_vision: bool = False
     context_window: int | None = Field(default=None, ge=1024, le=10_000_000)
     reasoning_levels: list[Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]] | None = Field(
         default=None, min_length=1

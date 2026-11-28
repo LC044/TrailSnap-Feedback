@@ -28,6 +28,10 @@ class MailSettings(Base):
 
 class ModelRequestUsage(Base):
     __tablename__ = "model_request_usage"
+    __table_args__ = (Index("ix_model_usage_conversation", "conversation_kind", "conversation_id", "message_id"),)
+    conversation_kind: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     connection_id: Mapped[str] = mapped_column(String(36), index=True)
     connection_name: Mapped[str] = mapped_column(String(160))
@@ -35,8 +39,20 @@ class ModelRequestUsage(Base):
     model_name: Mapped[str] = mapped_column(String(160))
     status: Mapped[str] = mapped_column(String(20), default="pending")
     reserved_tokens: Mapped[int] = mapped_column(Integer)
+    tool_calls: Mapped[list | None] = mapped_column(JSON(none_as_null=True), nullable=True)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AIChatActivity(Base):
+    __tablename__ = "ai_chat_activity"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    kind: Mapped[str] = mapped_column(String(16))
+    conversation_id: Mapped[str] = mapped_column(String(36))
+    actor_key: Mapped[str] = mapped_column(String(64))
+    anonymous: Mapped[bool] = mapped_column(Boolean)
+    retry: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
@@ -110,4 +126,18 @@ class ConversationMessage(Base):
     content: Mapped[str] = mapped_column(Text)
     response: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="queued")
+    created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class IntakeConversationMessage(Base):
+    __tablename__ = "intake_conversation_messages"
+    __table_args__ = (Index("ix_intake_message_conversation_time", "conversation_id", "created_at"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    conversation_id: Mapped[str] = mapped_column(String(36))
+    mode: Mapped[str] = mapped_column(String(24))
+    content: Mapped[str] = mapped_column(Text)
+    response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    image_count: Mapped[int] = mapped_column(Integer, default=0)
+    file_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True), default=utcnow)

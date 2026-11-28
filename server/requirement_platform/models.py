@@ -300,6 +300,7 @@ class AIModel(Base):
     display_name: Mapped[str] = mapped_column(String(160), default="")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     supports_json_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+    supports_vision: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     context_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_levels: Mapped[list] = mapped_column(JSON, default=lambda: ["none", "low", "medium", "high"])
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

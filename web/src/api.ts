@@ -59,7 +59,7 @@ export type Dashboard = {
   daily_new_by_type_90d?: DashboardDailyTypePoint[]
   top_followed?: Array<{ id: string; public_number?: number | null; title: string; follower_count: number }>
 }
-export type AIModel = { id: string; connection_id: string; model_name: string; display_name: string; enabled: boolean; supports_json_mode: boolean; context_window?: number; reasoning_levels: string[] }
+export type AIModel = { id: string; connection_id: string; model_name: string; display_name: string; enabled: boolean; supports_json_mode: boolean; supports_vision: boolean; context_window?: number; reasoning_levels: string[] }
 export type AIConnection = { id: string; name: string; provider: string; api_base: string; has_api_key: boolean; api_key_hint?: string; enabled: boolean; timeout_seconds: number; priority: number; models: AIModel[] }
 export type AITaskRoute = { task_type: string; label: string; description: string; enabled: boolean; model_ids: string[]; reasoning_effort: string; source: 'managed' | 'environment' | 'none'; updated_at?: string }
 export type AISettings = { connections: AIConnection[]; routes: AITaskRoute[]; legacy_environment_configured: boolean }

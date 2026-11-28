@@ -46,8 +46,4 @@ export const stageIndex = (status: string): number =>
 export const stageLabel = (status: string) => stageOf(status).label
 export const stageKeyOf = (status: string) => stageOf(status).key
 
-/** 筛选器给后端的参数：一个阶段可能对应多个内部状态，用逗号拼接。 */
-export const stageStatusParam = (key: string) =>
-  stages.find(stage => stage.key === key)?.statuses.join(',') ?? key
-
 export const stageOptions = stages.map(stage => ({ value: stage.key, label: stage.label }))

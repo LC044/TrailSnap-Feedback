@@ -15,11 +15,10 @@
 </template>
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { call } from '../api/client'
-type ModelUsage = { connection_name:string; model_name:string; requests:number; failed:number; unreported:number; input_tokens:number; output_tokens:number; today_tokens:number; reserved_tokens:number }
+import { aiUsage, type ModelUsage } from '../api/aiUsage'
 const rows = ref<ModelUsage[]>([]), loading = ref(false), error = ref('')
 const m = (value:number) => (value / 1000000).toLocaleString('zh-CN', { maximumFractionDigits: 6 })
-async function load(){loading.value=true;try{rows.value=(await call<{models:ModelUsage[]}>('GET','/admin/ai-model-usage')).models;error.value=''}catch{error.value='无法读取模型用量，请重试'}finally{loading.value=false}}
+async function load(){loading.value=true;try{rows.value=(await aiUsage.models()).models;error.value=''}catch{error.value='无法读取模型用量，请重试'}finally{loading.value=false}}
 onMounted(load)
 </script>
 <style scoped>

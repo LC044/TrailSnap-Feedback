@@ -74,11 +74,13 @@
               <span>{{ cooldown > 0 ? `还需等待 ${cooldown} 秒` : 'Enter 发送 · Shift + Enter 换行' }}</span>
               <ChatQuota :quota="quota" />
             </div>
-            <el-button type="primary" native-type="submit" :loading="sending" :circle="isMobile" aria-label="发送" :disabled="!content.trim() || sending || submitting || cooldown > 0 || quota?.exhausted">
+            <el-button type="primary" native-type="submit" :loading="sending" :circle="isMobile" aria-label="发送" :disabled="(!content.trim() && !attachments.length) || attachmentBusy || sending || submitting || cooldown > 0 || quota?.exhausted">
               <span class="send-text" aria-hidden="true">发送 ↑</span>
               <el-icon class="send-icon" aria-hidden="true"><Promotion /></el-icon>
             </el-button>
           </div>
+          <ChatAttachments v-model="attachments" :disabled="sending" :can-image="canImage" :capability-known="capabilityKnown" @busy="attachmentBusy = $event" />
+          <small class="intake-privacy">对话文字仅管理员可查阅，附件原件不保存。</small>
         </form>
       </div>
 
@@ -119,6 +121,8 @@ import ThinkingDots from '../../components/ThinkingDots.vue'
 import { chatEnter } from '../../chatKeyboard'
 import ChatActivity from '../../components/ChatActivity.vue'
 import ModeTabs from '../../components/ModeTabs.vue'
+import ChatAttachments from '../../components/ChatAttachments.vue'
+import type { ChatAttachment } from '../../chatAttachments'
 import type { ChatActivity as Activity } from '../../api/chatStream'
 
 const router = useRouter(), receipts = useAnonymousReceipts()
@@ -126,6 +130,7 @@ const content = ref(''), email = ref(''), optIn = ref(false), sending = ref(fals
 const draft = ref<Draft | null>(null), quota = ref<Quota>(), cooldown = ref(0)
 const messages = ref<{ role: string; text: string; sources?: Source[]; activities?: Activity[] }[]>([])
 const activities = ref<Activity[]>([])
+const attachments = ref<ChatAttachment[]>([]), attachmentBusy = ref(false), canImage = ref(false), capabilityKnown = ref(false)
 let controller: AbortController | undefined, stopped = false
 function updateActivity(event: Activity) {
   if (stopped || activities.value.length >= 24) return
@@ -160,21 +165,22 @@ function persist() {
 function reason(e: any) { return e?.response?.data?.msg || '暂时无法连接，请稍后重试，也可以填写表单提交' }
 async function scrollToEnd() { await nextTick(); if (timeline.value) timeline.value.scrollTop = timeline.value.scrollHeight }
 async function send() {
-  if (sending.value || submitting.value || cooldown.value || quota.value?.exhausted || !content.value.trim()) return
+  if (sending.value || submitting.value || cooldown.value || quota.value?.exhausted || attachmentBusy.value || (!content.value.trim() && !attachments.value.length)) return
   sending.value = true
   activities.value = []
   controller = new AbortController()
   const text = content.value.trim()
-  messages.value.push({ role: 'user', text })
+  const names = attachments.value.map(item => item.name).join('、')
+  messages.value.push({ role: 'user', text: [text, names ? `附件：${names}` : ''].filter(Boolean).join('\n') })
   await scrollToEnd()
   try {
-    const result = await intake.stream(key, text, state, mode.value, updateActivity, controller.signal)
+    const result = await intake.stream(key, text, state, mode.value, updateActivity, controller.signal, attachments.value)
     if (stopped) return
     for (const activity of activities.value) if (activity.status === 'running') activity.status = 'completed'
     messages.value.push({ role: 'assistant', text: result.reply, sources: result.sources, activities: [...activities.value] })
     if (result.snapshot) snapshot.value = result.snapshot
     if (result.draft && !draft.value && window.innerWidth > 1000) showPreview.value = true
-    draft.value = result.draft; quota.value = result.quota; state = result.state; content.value = ''
+    draft.value = result.draft; quota.value = result.quota; state = result.state; content.value = ''; attachments.value = []
     cooldown.value = (result.quota as Quota & { retry_after_seconds?: number }).retry_after_seconds || 0
     pendingSubmission = undefined; persist()
   } catch (e: any) {
@@ -200,11 +206,14 @@ async function submit() {
     await router.push(`/requirements/REQ-${created.public_number}/conversation`)
   } catch (e) { ElMessage.error(reason(e)) } finally { submitting.value = false }
 }
-onMounted(async () => { mobileQuery.addEventListener('change', syncMobile); const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
+onMounted(async () => {
+  void intake.capabilities().then(result => { canImage.value = result.image_input }).catch(() => {}).finally(() => { capabilityKnown.value = true })
+  mobileQuery.addEventListener('change', syncMobile); const results = await Promise.allSettled([intake.quota(key), intake.knowledge()]); if (results[0].status === 'fulfilled') { quota.value = results[0].value; cooldown.value = quota.value.retry_after_seconds || 0 } else { ElMessage.error(reason(results[0].reason)) } if (results[1].status === 'fulfilled') snapshot.value = results[1].value })
 onBeforeUnmount(() => { stopped = true; mobileQuery.removeEventListener('change', syncMobile); controller?.abort(); clearInterval(timer) })
 </script>
 
 <style scoped>
+.intake-privacy { display:block; margin-top:4px; font-size:11px; color:var(--rp-text-3); grid-column:1 / -1; }
 .intake-page { height: 100%; min-height: 0; display: flex; flex-direction: column; width: 100%; }
 
 /* ---------------- 头部 ---------------- */
@@ -413,6 +422,7 @@ button:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
   .actions span { display: none; }
   .composer :deep(.el-textarea__inner) { padding: 9px 0; font-size: 15px; line-height: 1.4; }
   .actions { margin: 0; }
+  .composer .attachments { grid-column: 1 / -1; }
   .actions .el-button { min-width: 40px; width: 40px; height: 40px; padding: 0; }
   .send-text { display: none; }
   .send-icon { display: inline-flex; font-size: 18px; }

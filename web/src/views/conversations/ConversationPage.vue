@@ -26,6 +26,7 @@
         <el-select v-if="canPlan" v-model="mode" aria-label="对话任务" style="width:160px"><el-option label="需求分析" value="analysis" /><el-option label="实现方案" value="plan" /><el-option label="修复建议 / 补丁" value="repair" /></el-select>
       </div>
       <ChatQuota :quota="quota" />
+      <small class="conversation-privacy">对话不公开，平台管理员可查阅。请勿发送密码或密钥。</small>
       <el-input v-model="draft" type="textarea" :autosize="{ minRows: 2, maxRows: 5 }" :maxlength="2000" show-word-limit :readonly="sending || pending" resize="none" placeholder="补充细节，或回答 AI 的提问…" aria-label="对话内容" @keydown="chatEnter($event, send)" />
       <div class="composer-actions"><small>{{ cooldown ? `${cooldown} 秒后可发送` : 'Enter 发送 · Shift + Enter 换行' }}</small><el-button native-type="submit" type="primary" :loading="sending" :disabled="pending || !draft.trim() || quota?.exhausted || cooldown > 0">发送 ↑</el-button></div>
     </form>
@@ -100,6 +101,7 @@ onBeforeUnmount(() => { stopped = true; clearTimeout(timer); clearInterval(coold
 </script>
 
 <style scoped>
+.conversation-privacy { display: block; font-size: 12px; color: var(--rp-text-3); }
 .conversation-page {
   width: 100%; height: 100%; min-height: 0; max-width: none;
   padding: 0 28px; overflow: hidden;

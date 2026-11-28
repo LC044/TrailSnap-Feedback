@@ -84,12 +84,16 @@ def test_native_runtime_preserves_reasoning_and_clears_inherited_secrets(tmp_pat
 def test_remote_gateway_auth_precedes_budget_and_reports_native_completion(indexed, monkeypatch):
     from requirement_platform import model_gateway, chat_activity
     reserved, events = [], []
+    image = {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": "ZmFrZQ=="}}
     monkeypatch.setattr(model_gateway, "reserve_model", lambda *_: reserved.append(True))
     class Upstream(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             assert body["model"] == "configured-model"
+            text, media = body["messages"][0]["content"]
+            assert text["type"] == "text" and "TrailSnap screenshot" in text["text"]
+            assert media == image
             assert self.headers["x-api-key"] == "provider-only"
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
             self.wfile.write(b'{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":10,"output_tokens":1}}')
@@ -98,11 +102,11 @@ def test_remote_gateway_auth_precedes_budget_and_reports_native_completion(index
     target = SimpleNamespace(model_name="configured-model", api_base=f"http://127.0.0.1:{server.server_port}", api_key="provider-only", timeout_seconds=5)
     marker = chat_activity.observer.set(events.append)
     try:
-        with model_gateway.bounded_endpoint(target, remote=True, allowed_tools=native_runtime.NATIVE_TOOLS, max_requests=1) as gateway:
+        with model_gateway.bounded_endpoint(target, remote=True, allowed_tools=native_runtime.NATIVE_TOOLS, max_requests=1, images=[image]) as gateway:
             port = gateway["url"].rsplit(":", 1)[1]
             url = f"http://127.0.0.1:{port}/v1/messages"
             call = {"type": "tool_use", "id": "read-test", "name": "read", "input": {"file_path": "source/test.py"}}
-            payload = {"model": "test", "system": "public-source-evidence " * 3000, "messages": [{"role": "assistant", "content": [call]},
+            payload = {"model": "test", "system": "public-source-evidence " * 3000, "messages": [{"role": "user", "content": "TrailSnap screenshot"}, {"role": "assistant", "content": [call]},
                        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "read-test", "content": "source"}]}]}
             with httpx.Client(trust_env=False) as client:
                 assert client.post(url, json={}).status_code == 403
@@ -134,7 +138,12 @@ def test_runner_cannot_use_public_platform_apis(monkeypatch):
 
 
 def test_upstream_timeout_and_failure_logs_do_not_expose_diagnostics(indexed, monkeypatch, caplog):
+    from uuid import uuid4
     from requirement_platform import model_gateway
+    from requirement_platform.collaboration_models import ModelRequestUsage
+    from requirement_platform.conversation_usage import track_conversation
+
+    conversation_id, message_id = str(uuid4()), str(uuid4())
     monkeypatch.setattr(model_gateway, "reserve_model", lambda *_: None)
     class Upstream(BaseHTTPRequestHandler):
         def log_message(self, *_): pass
@@ -153,10 +162,13 @@ def test_upstream_timeout_and_failure_logs_do_not_expose_diagnostics(indexed, mo
     monkeypatch.setattr(model_gateway, "build_opener", lambda *_: Opener())
     target = SimpleNamespace(model_name="test", api_base=f"http://127.0.0.1:{server.server_port}", api_key="private-provider-key", timeout_seconds=45)
     try:
-        with model_gateway.bounded_endpoint(target) as url:
+        with track_conversation("requirement", conversation_id, message_id), model_gateway.bounded_endpoint(target) as url:
             response = httpx.post(url + "/v1/messages", json={"messages": []}, trust_env=False)
             assert response.status_code == 503
             assert "private" not in response.text
+        with model_gateway.SessionLocal() as db:
+            record = db.query(ModelRequestUsage).filter_by(conversation_id=conversation_id).one()
+            assert (record.conversation_kind, record.message_id, record.status) == ("requirement", message_id, "failed")
         assert timeouts == [45]  # No hidden ten-second cap before first token.
         assert "upstream_status=503" in caplog.text
         assert "private-provider-key" not in caplog.text
@@ -214,5 +226,50 @@ def test_official_native_sdk_reads_searches_and_runs_shell(tmp_path):
         history = json.dumps(requests[-1], ensure_ascii=False)
         assert "native-shell-ok" in history and "CUDA CoreML CPU" in history
         assert "session_log" not in json.dumps(requests[0]).lower()
+    finally:
+        server.shutdown(); server.server_close()
+
+
+def test_gateway_records_only_allowed_tool_metadata_and_observed_results(indexed, monkeypatch):
+    from uuid import uuid4
+    from requirement_platform import model_gateway
+    from requirement_platform.collaboration_models import ModelRequestUsage
+    from requirement_platform.conversation_usage import track_conversation
+
+    cid, mid = str(uuid4()), str(uuid4())
+    monkeypatch.setattr(model_gateway, "reserve_model", lambda *_: None)
+    calls = [{"type": "tool_use", "id": f"private-id-{i}", "name": name, "input": {"secret": "private-arg"}}
+             for i, name in enumerate(("read", "grep", "read", "not-allowed"))]
+
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+
+        def do_POST(self):
+            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            if not request["messages"]:
+                for block in calls:
+                    event = {"type": "content_block_start", "content_block": block}
+                    self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Upstream)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    target = SimpleNamespace(model_name="test", api_base=f"http://127.0.0.1:{server.server_port}", api_key="test", timeout_seconds=5)
+    results = [{"type": "tool_result", "tool_use_id": block["id"], "is_error": i == 1, "content": "private-result"}
+               for i, block in enumerate(calls[:2])]
+    history = [{"role": "assistant", "content": calls}, {"role": "user", "content": results}]
+    try:
+        with track_conversation("intake", cid, mid), model_gateway.bounded_endpoint(target, allowed_tools={"read", "grep"}, max_requests=3) as url:
+            for messages in ([], history, history):
+                assert httpx.post(url + "/v1/messages", json={"messages": messages}, trust_env=False).status_code == 200
+        with model_gateway.SessionLocal() as db:
+            usage = db.query(ModelRequestUsage).filter_by(conversation_id=cid, message_id=mid).order_by(ModelRequestUsage.created_at).all()
+            trace = usage[0].tool_calls
+            assert [(t["name"], t["status"]) for t in trace] == [("read", "completed"), ("grep", "failed"), ("read", "unconfirmed")]
+            assert all(set(t) == {"name", "status", "created_at"} for t in trace)
+            assert [t["created_at"] for t in trace] == sorted(t["created_at"] for t in trace)
+            assert [r.tool_calls for r in usage[1:]] == [[], []]
     finally:
         server.shutdown(); server.server_close()

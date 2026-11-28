@@ -37,6 +37,7 @@ class AIModelTarget:
     supports_json_mode: bool
     timeout_seconds: int
     reasoning_effort: str = "none"
+    supports_vision: bool = False
 
 
 def _fernet() -> Fernet:
@@ -64,7 +65,7 @@ def model_dict(row: AIModel) -> dict[str, Any]:
     return {
         "id": row.id, "connection_id": row.connection_id, "model_name": row.model_name,
         "display_name": row.display_name, "enabled": row.enabled,
-        "supports_json_mode": row.supports_json_mode, "context_window": row.context_window,
+        "supports_json_mode": row.supports_json_mode, "supports_vision": row.supports_vision, "context_window": row.context_window,
         "reasoning_levels": list(row.reasoning_levels or ["none"]),
         "created_at": row.created_at.isoformat(), "updated_at": row.updated_at.isoformat(),
     }
@@ -118,7 +119,7 @@ def resolve_model_targets(db: Session, task_type: str) -> list[AIModelTarget]:
                 connection_id=connection.id, connection_name=connection.name, provider=connection.provider,
                 api_base=connection.api_base.rstrip("/"), api_key=decrypt_api_key(connection.api_key_encrypted),
                 model_id=model.id, model_name=model.model_name, supports_json_mode=model.supports_json_mode,
-                timeout_seconds=connection.timeout_seconds, reasoning_effort=route.reasoning_effort,
+                timeout_seconds=connection.timeout_seconds, reasoning_effort=route.reasoning_effort, supports_vision=model.supports_vision,
             ))
         return targets
     if task_type in {"preflight_triage", "requirement_triage"} and settings.ai_api_url and settings.ai_model:

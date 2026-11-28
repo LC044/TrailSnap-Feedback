@@ -3,6 +3,7 @@ import re
 
 from .ai_settings import resolve_model_targets
 from .collaboration_models import Conversation, ConversationMessage
+from .conversation_usage import track_conversation
 from .domain.common import audit
 from .models import Requirement, User
 from . import dsh
@@ -37,7 +38,10 @@ def process_message(db, message_id):
     message.status = "running"
     db.commit()
     try:
-        with chat_budget(conversation.principal, not conversation.principal.startswith("user:")):
+        with (
+            chat_budget(conversation.principal, not conversation.principal.startswith("user:")),
+            track_conversation("requirement", conversation.id, message.id),
+        ):
             response = dsh.run_with_fallback(targets, json.dumps(context, ensure_ascii=False), session_id=message.id)
     except Exception:
         raise RuntimeError("AI 暂时不可用，请稍后重试或联系管理员")

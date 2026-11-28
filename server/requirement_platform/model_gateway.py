@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy.dialects.sqlite import insert
 from .ai_guard import reserve_model, model_principal, model_call_budget
 from .collaboration_models import AIQuota, ModelRequestUsage
+from .conversation_usage import conversation_usage
 from .db import SessionLocal
 from .config import settings
 from .models import utcnow
@@ -27,12 +28,13 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 @contextmanager
-def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remote=False, knowledge=None, response_format="json"):
+def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remote=False, knowledge=None, response_format="json", images=()):
     from .chat_activity import emit, observer
     activity = observer.get()
     gateway_token = secrets.token_urlsafe(32) if remote else None
     principal = model_principal.get()  # Capture before crossing into HTTP server threads.
     call_budget = model_call_budget.get()
+    kind, conversation_id, message_id = conversation_usage.get() or (None, None, None)
     # One global in-flight request across workers/replicas sharing the SQLite volume.
     fence = secrets.randbelow(2**30) + 1
     with SessionLocal() as db:
@@ -46,6 +48,8 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
     lock = threading.Lock()
     called = 0
     completed_tools = set()
+    # Provider IDs are used only in memory to correlate SDK results.
+    observed_tools = {}
     run_deadline = min(time.monotonic() + 100, call_budget["deadline"]) if call_budget else time.monotonic() + 100
     quota_error = None
     class Handler(BaseHTTPRequestHandler):
@@ -72,24 +76,47 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                     self.send_error(413); return
                 payload = json.loads(self.rfile.read(size))
                 names = {}
+                tool_results = {}
                 for message in payload.get("messages", []):
                     content = message.get("content", [])
                     for block in content if isinstance(content, list) else []:
                         if not isinstance(block, dict):
                             continue
                         if block.get("type") == "tool_use":
-                            names[block.get("id")] = block.get("name")
+                            tool_id, name = block.get("id"), block.get("name")
+                            if isinstance(tool_id, str) and isinstance(name, str):
+                                names[tool_id] = name
                         elif block.get("type") == "tool_result":
                             tool_id = block.get("tool_use_id")
-                            name = names.get(tool_id)
-                            if name in allowed_tools and tool_id not in completed_tools:
-                                completed_tools.add(tool_id)
-                                emit(name, "failed" if block.get("is_error") else "completed", sink=activity)
+                            name = names.get(tool_id) if isinstance(tool_id, str) else None
+                            if name in allowed_tools:
+                                tool_results[tool_id] = (name, "failed" if block.get("is_error") else "completed")
                 if knowledge is not None:
                     knowledge.observe(payload.get("messages", []))
                 tools = payload.get("tools") or []
                 if len(tools) > len(allowed_tools) or any(not isinstance(t, dict) or t.get("name") not in allowed_tools for t in tools):
                     self.send_error(403); return
+                with lock:
+                    updates = {}
+                    for tool_id, (name, status) in tool_results.items():
+                        observed = observed_tools.get(tool_id)
+                        if observed and observed[2] == name and tool_id not in completed_tools:
+                            request_id, index, _ = observed
+                            updates.setdefault(request_id, {})[index] = status
+                    if updates:
+                        with SessionLocal() as db:
+                            for request_id, statuses in updates.items():
+                                record = db.get(ModelRequestUsage, request_id)
+                                if record and record.tool_calls:
+                                    record.tool_calls = [
+                                        {**entry, "status": statuses.get(index, entry["status"])}
+                                        for index, entry in enumerate(record.tool_calls)
+                                    ]
+                            db.commit()
+                    for tool_id, (name, status) in tool_results.items():
+                        if tool_id not in completed_tools:
+                            completed_tools.add(tool_id)
+                            emit(name, status, sink=activity)
                 if allowed_tools and (called == max_requests or (call_budget and call_budget["remaining"] == 1)):
                     # Some compatible gateways ignore tool_choice=none. Omit
                     # definitions entirely so the final round has no tools.
@@ -106,10 +133,23 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                     instruction = {"type": "text", "text": "已到本次分析的最后一轮。" + final_instruction + "禁止工具调用和 DSML。资料不足时明确说明。"}
                     system = payload.get("system") or []
                     payload["system"] = ([{"type": "text", "text": system}] if isinstance(system, str) else list(system)) + [instruction]
+                if images:
+                    # Keep media out of runner files/history; attach only to the original turn
+                    # (or to the single synthesized user turn at the final tool-free round).
+                    first_user = next((m for m in payload.get("messages", []) if m.get("role") == "user"), None)
+                    if first_user is None:
+                        self.send_error(422); return
+                    content = first_user.get("content", "")
+                    blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+                    if not isinstance(blocks, list):
+                        self.send_error(422); return
+                    first_user["content"] = [*blocks, *images]
                 payload["max_tokens"] = settings.ai_max_output_tokens
                 payload["model"] = target.model_name
                 body = json.dumps(payload, ensure_ascii=False).encode()
-                if len(body) > 128000:
+                # Incoming SDK JSON is still bounded at 128 KB; only validated
+                # server-side media may expand the serialized upstream request.
+                if len(body) > (384000 if images else 128000):
                     logger.warning("ai_gateway_rejected reason=serialized_size bytes=%d", len(body))
                     self.send_error(413); return
                 if call_budget is not None:
@@ -119,6 +159,7 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                 with SessionLocal() as db:
                     reserve_model(db, len(body), principal)
                     record = ModelRequestUsage(
+                        conversation_kind=kind, conversation_id=conversation_id, message_id=message_id,
                         connection_id=getattr(target, "connection_id", "environment"),
                         connection_name=getattr(target, "connection_name", "环境变量连接")[:160],
                         model_id=getattr(target, "model_id", "environment"), model_name=getattr(target, "model_name", str(payload.get("model", "unknown")))[:160],
@@ -161,23 +202,35 @@ def bounded_endpoint(target, *, allowed_tools=frozenset(), max_requests=1, remot
                     except (BrokenPipeError, ConnectionResetError):
                         pass
             finally:
-                if succeeded and response_body:
+                tool_calls = []
+                tool_ids = {}
+                if response_body:
                     for line in bytes(response_body).splitlines():
                         if line.startswith(b"data:"):
                             try:
                                 event = json.loads(line[5:])
                                 block = event.get("content_block", {})
-                                if block.get("type") == "tool_use" and block.get("name") in allowed_tools:
-                                    emit(block["name"], sink=activity)
+                                if event.get("type") != "content_block_start" or block.get("type") != "tool_use":
+                                    continue
+                                name, tool_id = block.get("name"), block.get("id")
+                                if not isinstance(name, str) or name not in allowed_tools:
+                                    continue
+                                if succeeded:
+                                    emit(name, sink=activity)
+                                if usage_id and message_id and isinstance(tool_id, str) and tool_id and tool_id not in tool_ids and len(tool_calls) < 32:
+                                    tool_ids[tool_id] = (usage_id, len(tool_calls), name)
+                                    tool_calls.append({"name": name, "created_at": utcnow().isoformat(), "status": "unconfirmed"})
                             except (ValueError, AttributeError):
                                 pass
                 if usage_id:
                     from .model_usage import reported_usage
                     incoming, outgoing = reported_usage(bytes(response_body))
-                    with SessionLocal() as db:
+                    with lock, SessionLocal() as db:
                         db.query(ModelRequestUsage).filter_by(id=usage_id).update(
-                            {"status": "completed" if succeeded else "failed", "input_tokens": incoming, "output_tokens": outgoing})
+                            {"status": "completed" if succeeded else "failed", "input_tokens": incoming, "output_tokens": outgoing,
+                             "tool_calls": tool_calls if message_id else None})
                         db.commit()
+                        observed_tools.update(tool_ids)
 
     server = ThreadingHTTPServer(("0.0.0.0" if remote else "127.0.0.1", 0), Handler)
     server.daemon_threads = True

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from .requirements import edit_token_matches
 from .responses import ok
 from ..collaboration_models import Conversation, ConversationMessage, EmailDelivery, EmailSubscription
+from ..conversation_usage import record_chat
 from ..db import get_db
 from ..domain.common import audit, enqueue
 from ..domain.requirements import get_requirement, RequirementNotFound
@@ -94,6 +95,7 @@ def send_message(requirement_id: str, payload: MessageInput, request: Request, u
     if count >= 100:
         raise HTTPException(429, "此对话已达到 100 条消息上限")
     admit_chat(db, principal, request.client.host if request.client else "unknown", principal.startswith("receipt:"))
+    record_chat(db, "requirement", conversation.id, principal)
     message = ConversationMessage(conversation_id=conversation.id, **payload.model_dump())
     allowed = permitted_topic(payload.content, requirement.title + " " + requirement.description)
     if not allowed:
@@ -125,6 +127,7 @@ def retry_message(requirement_id: str, message_id: str, request: Request, user: 
     if any(message_data(db, m)["status"] != "failed" for m in others):
         raise HTTPException(409, "请等待上一条消息完成")
     admit_chat(db, principal, request.client.host if request.client else "unknown", principal.startswith("receipt:"))
+    record_chat(db, "requirement", conversation.id, principal, retry=True)
     job.status, job.attempts, job.available_at, job.last_error = "queued", 0, utcnow(), None
     message.status = "queued"
     db.commit()

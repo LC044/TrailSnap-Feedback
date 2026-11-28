@@ -1,4 +1,5 @@
 import { client, call } from './client'
+import type { ChatAttachment } from '../chatAttachments'
 import type { Quota } from './collaboration'
 import { chatStream, type ChatActivity } from './chatStream'
 
@@ -8,7 +9,8 @@ export type Source = { path: string; url: string; kind: 'docs' | 'code'; line: n
 export type Snapshot = { ready: boolean; message?: string; tag?: string; revision?: string; refreshed_at?: string; stale?: boolean; warning?: string }
 export type IntakeResult = { reply: string; draft: Draft | null; state: string; quota: Quota; sources: Source[]; snapshot?: Snapshot }
 export const intake = {
-  stream: (key: string, content: string, state: string | undefined, mode: ChatMode, onActivity: (activity: ChatActivity) => void, signal?: AbortSignal) => chatStream<IntakeResult>('/intake/messages', { content, state, mode }, key, onActivity, signal),
+  stream: (key: string, content: string, state: string | undefined, mode: ChatMode, onActivity: (activity: ChatActivity) => void, signal?: AbortSignal, attachments: ChatAttachment[] = []) => chatStream<IntakeResult>('/intake/messages', { content, state, mode, attachments }, key, onActivity, signal),
+  capabilities: () => call<{ image_input: boolean }>('GET', '/intake/capabilities'),
   quota: (key: string) => call<Quota>('GET', '/intake/quota', undefined, { 'X-Intake-Key': key }),
   knowledge: () => call<Snapshot>('GET', '/intake/knowledge'),
   send: async (key: string, content: string, state?: string, mode: ChatMode = 'feedback') => {

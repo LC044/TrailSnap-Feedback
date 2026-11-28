@@ -42,7 +42,9 @@ def run_with_fallback(targets, prompt, **kwargs):
         model_call_budget.reset(token)
 
 
-def run_harness(target, prompt, *, session_id=None, knowledge=None, response_format="json"):
+def run_harness(target, prompt, *, session_id=None, knowledge=None, response_format="json", images=()):
+    if images and not getattr(target, "supports_vision", False):
+        raise RuntimeError("The configured model does not accept image input")
     if len(prompt.encode("utf-8")) > 24000:
         raise RuntimeError("分析资料过长，请精简后重试")
     if not settings.dsh_enabled or not settings.dsh_runner_url or not settings.dsh_runner_token:
@@ -54,7 +56,7 @@ def run_harness(target, prompt, *, session_id=None, knowledge=None, response_for
     from .chat_activity import emit
     budget = model_call_budget.get()
     timeout = min(100, max(1, budget["deadline"] - time.monotonic())) if budget else 100
-    with bounded_endpoint(target, allowed_tools=NATIVE_TOOLS, max_requests=12, remote=True, knowledge=knowledge, response_format=response_format) as gateway:
+    with bounded_endpoint(target, allowed_tools=NATIVE_TOOLS, max_requests=12, remote=True, knowledge=knowledge, response_format=response_format, images=images) as gateway:
         body = {"model": target.model_name, "reasoning_effort": target.reasoning_effort,
                 # A connection timeout applies to each model request, not the
                 # entire sequence of source searches and model turns.

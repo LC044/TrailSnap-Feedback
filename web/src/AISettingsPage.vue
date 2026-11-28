@@ -17,7 +17,7 @@
     </el-alert>
 
     <AIQuotaSettings />
-    <AIUsageStatistics />
+    <router-link class="ai-usage-link" :to="{ name: 'ai-usage' }">查看 AI 用量与对话 →</router-link>
     <el-alert type="info" :closable="false" title="模型接口配置">
       请配置兼容 Messages 协议的接口，测试连接会实际调用模型。
     </el-alert>
@@ -56,7 +56,7 @@
         </div>
 
         <div class="models">
-          <div class="models-head"><h3>模型</h3><span>配置模型支持的思考等级；关闭 JSON Mode 可兼容不支持 response_format 的服务。</span></div>
+          <div class="models-head"><h3>模型</h3><span>配置模型支持的思考等级；仅在上游 Messages 接口支持视觉输入时勾选「图片输入」，并把该模型加入需求分诊路由。</span></div>
           <div v-for="model in connection.models" :key="model.id" class="model-row">
             <el-input v-model="model.display_name" placeholder="显示名称" />
             <el-input v-model="model.model_name" placeholder="上游模型名" />
@@ -64,7 +64,7 @@
             <el-select v-model="model.reasoning_levels" multiple collapse-tags placeholder="支持的思考等级">
               <el-option v-for="level in reasoningOptions" :key="level" :label="reasoningLabel(level)" :value="level" />
             </el-select>
-            <el-checkbox v-model="model.supports_json_mode">JSON Mode</el-checkbox>
+            <div class="model-capabilities"><el-checkbox v-model="model.supports_json_mode">JSON Mode</el-checkbox><el-checkbox v-model="model.supports_vision">图片输入</el-checkbox></div>
             <el-switch v-model="model.enabled" active-text="启用" />
             <div class="row-actions"><el-button size="small" @click="saveModel(model)">保存</el-button><el-button size="small" type="danger" link @click="removeModel(model)">删除</el-button></div>
           </div>
@@ -75,7 +75,7 @@
             <el-select v-model="modelDraft(connection.id).reasoning_levels" multiple collapse-tags placeholder="支持的思考等级">
               <el-option v-for="level in reasoningOptions" :key="level" :label="reasoningLabel(level)" :value="level" />
             </el-select>
-            <el-checkbox v-model="modelDraft(connection.id).supports_json_mode">JSON Mode</el-checkbox>
+            <div class="model-capabilities"><el-checkbox v-model="modelDraft(connection.id).supports_json_mode">JSON Mode</el-checkbox><el-checkbox v-model="modelDraft(connection.id).supports_vision">图片输入</el-checkbox></div>
             <span></span>
             <el-button type="primary" plain @click="addModel(connection.id)">添加模型</el-button>
           </div>
@@ -105,7 +105,6 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { MagicStick } from '@element-plus/icons-vue'
 import AIQuotaSettings from './components/AIQuotaSettings.vue'
-import AIUsageStatistics from './components/AIUsageStatistics.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { api, type AIConnection, type AIModel, type AISettings, type AITaskRoute } from './api'
 
@@ -114,9 +113,9 @@ const settings = ref<AISettings | null>(null)
 const connectionKeys = reactive<Record<string, string>>({})
 const reasoningOptions = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 const reasoningLabel = (level: string) => ({ none: '关闭', minimal: '最低', low: '低', medium: '中', high: '高', xhigh: '超高', max: '最大' }[level] || level)
-const modelDrafts = reactive<Record<string, { model_name: string; display_name: string; context_window?: number; supports_json_mode: boolean; reasoning_levels: string[] }>>({})
+const modelDrafts = reactive<Record<string, { model_name: string; display_name: string; context_window?: number; supports_json_mode: boolean; supports_vision: boolean; reasoning_levels: string[] }>>({})
 const newConnection = reactive({ name: '', api_base: '', api_key: '', timeout_seconds: 45 })
-const emptyModel = () => ({ model_name: '', display_name: '', context_window: 128000, supports_json_mode: true, reasoning_levels: ['none', 'low', 'medium', 'high'] })
+const emptyModel = () => ({ model_name: '', display_name: '', context_window: 128000, supports_json_mode: true, supports_vision: false, reasoning_levels: ['none', 'low', 'medium', 'high'] })
 function modelDraft(connectionId: string) { return modelDrafts[connectionId] ||= emptyModel() }
 const modelOptions = computed(() => (settings.value?.connections || []).flatMap(connection => connection.models.map(model => ({
   id: model.id, label: `${connection.name} / ${model.display_name || model.model_name}`,
@@ -171,7 +170,7 @@ async function addModel(connectionId: string) {
 }
 async function saveModel(model: AIModel) {
   try { await api.updateAIModel(model.id, { model_name: model.model_name, display_name: model.display_name,
-    enabled: model.enabled, supports_json_mode: model.supports_json_mode, context_window: model.context_window || null,
+    enabled: model.enabled, supports_json_mode: model.supports_json_mode, supports_vision: model.supports_vision, context_window: model.context_window || null,
     reasoning_levels: model.reasoning_levels.length ? model.reasoning_levels : ['none'] }); ElMessage.success('模型已保存'); await load() }
   catch (error) { ElMessage.error(message(error)) }
 }
@@ -191,6 +190,9 @@ onMounted(load)
 </script>
 
 <style scoped>
+.model-capabilities { display:flex; flex-direction:column; }
+.model-capabilities :deep(.el-checkbox) { height:24px; margin-right:0; }
+.ai-usage-link { display: inline-block; margin: 0 0 16px; color: var(--rp-primary); }
 .sub { color:var(--ink-3); }
 .settings-block { margin-top:18px; padding:20px; }.settings-block h2 { margin:0 0 14px; font-size:16px; }
 .connection-list { display:grid; gap:16px; }.connection-grid { display:grid; grid-template-columns:1fr 2fr 1.5fr 150px; gap:12px; }

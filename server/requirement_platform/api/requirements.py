@@ -5,7 +5,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse, JSONResponse, PlainTextResponse
@@ -52,6 +52,14 @@ def next_requirement_number(db: Session) -> int:
 def can_access_private_data(row: Requirement, user: User | None) -> bool:
     return bool(user and (user.id == row.created_by or user.role in {"admin", "owner"}))
 
+
+# Keep aligned with the public labels and board columns in web/src/stages.ts.
+PUBLIC_STAGES = {
+    "pending": ("submitted", "triaging", "pending_review", "needs_information"),
+    "planned": ("candidate", "accepted", "scheduled", "planning", "candidate_selection", "scope_locked"),
+    "building": ("developing", "testing", "release_ready", "pr_open", "merged", "paused", "blocked"),
+    "done": ("released", "published", "completed", "closed", "rejected", "deferred", "duplicate", "withdrawn", "cancelled"),
+}
 
 EDITABLE_STATUSES = {"submitted", "needs_information", "pending_review"}
 
@@ -258,9 +266,11 @@ def download_requirement_attachment(
 @router.get("/api/requirements")
 def list_requirements(
     status: str | None = None,
+    stage: Literal["pending", "planned", "building", "done"] | None = None,
     type: str | None = None,
     q: str | None = Query(default=None, max_length=100),
     mine: bool = False,
+    public_only: bool = False,
     limit: int = Query(50, ge=1, le=100),
     skip: int = Query(0, ge=0),
     include_deleted: bool = False,
@@ -275,19 +285,23 @@ def list_requirements(
             raise HTTPException(status_code=403, detail="Manager role required")
     else:
         query = query.filter(Requirement.deleted_at.is_(None))
-    if not include_closed and not status and not mine:
+    if not include_closed and not status and not stage and not mine:
         query = query.filter(Requirement.status != "closed")
     if mine:
         if not user:
             raise HTTPException(status_code=401, detail="Authentication required")
         query = query.filter(Requirement.created_by == user.id)
-    elif not is_manager:
+    if public_only:
+        query = query.filter(Requirement.visibility == "public")
+    elif not mine and not is_manager:
         if user:
             query = query.filter(or_(Requirement.visibility == "public", Requirement.created_by == user.id))
         else:
             query = query.filter(Requirement.visibility == "public")
+    if stage:
+        query = query.filter(Requirement.status.in_(PUBLIC_STAGES[stage]))
     if status:
-        # 前端按展示阶段筛选，一个阶段可能对应多个内部状态，用逗号拼接。
+        # Keep comma-separated filters compatible with older clients.
         wanted = [item.strip() for item in status.split(",") if item.strip()]
         if len(wanted) == 1:
             query = query.filter(Requirement.status == wanted[0])
